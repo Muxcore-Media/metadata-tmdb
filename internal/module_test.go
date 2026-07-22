@@ -5,8 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
 )
@@ -28,20 +35,26 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/search/movie":
-			json.NewEncoder(w).Encode(map[string]any{
-				"page": 1, "total_results": 1, "total_pages": 1,
-				"results": []map[string]any{
-					{
-						"id": 550, "title": "Fight Club",
-						"overview":     "A ticking-clock thriller.",
-						"poster_path":  "/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
-						"release_date": "1999-10-15",
-						"vote_average": 8.4, "vote_count": 25000,
-						"media_type": "movie",
-						"genre_ids":  []int32{18, 53},
+			if r.URL.Query().Get("primary_release_year") == "1999" || r.URL.Query().Get("primary_release_year") == "" {
+				json.NewEncoder(w).Encode(map[string]any{
+					"page": 1, "total_results": 1, "total_pages": 1,
+					"results": []map[string]any{
+						{
+							"id": 550, "title": "Fight Club",
+							"overview":     "A ticking-clock thriller.",
+							"poster_path":  "/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
+							"release_date": "1999-10-15",
+							"vote_average": 8.4, "vote_count": 25000,
+							"media_type": "movie",
+							"genre_ids":  []int32{18, 53},
+						},
 					},
-				},
-			})
+				})
+			} else {
+				json.NewEncoder(w).Encode(map[string]any{
+					"page": 1, "total_results": 0, "total_pages": 0, "results": []map[string]any{},
+				})
+			}
 		case "/3/search/tv":
 			json.NewEncoder(w).Encode(map[string]any{
 				"page": 1, "total_results": 1, "total_pages": 1,
@@ -54,6 +67,23 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 						"vote_average":   8.9, "vote_count": 10000,
 						"media_type": "tv",
 					},
+				},
+			})
+		case "/3/movie/550/alternative_titles":
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 550,
+				"titles": []map[string]any{
+					{"iso_3166_1": "US", "title": "Fight Club", "type": ""},
+					{"iso_3166_1": "DE", "title": "Fight Club", "type": ""},
+					{"iso_3166_1": "FR", "title": "Fight Club: Le Club de la Combat", "type": ""},
+				},
+			})
+		case "/3/tv/1396/alternative_titles":
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 1396,
+				"results": []map[string]any{
+					{"iso_3166_1": "US", "title": "Breaking Bad", "type": ""},
+					{"iso_3166_1": "ES", "title": "Breaking Bad: Metástasis", "type": ""},
 				},
 			})
 		case "/3/movie/550":
@@ -227,6 +257,82 @@ func TestSearchTV(t *testing.T) {
 	}
 	if resp.Results[0].Name != "Breaking Bad" {
 		t.Errorf("expected 'Breaking Bad', got %s", resp.Results[0].Name)
+	}
+}
+
+func TestSearchMovieWithYear(t *testing.T) {
+	srv, m := newTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+
+	resp, err := m.Search(ctx, &metadatav1.SearchRequest{
+		Query: "fight club",
+		Type:  metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+		Year:  1999,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp.Results))
+	}
+
+	empty, err := m.Search(ctx, &metadatav1.SearchRequest{
+		Query: "fight club",
+		Type:  metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+		Year:  2020,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty.Results) != 0 {
+		t.Fatalf("expected 0 results for wrong year, got %d", len(empty.Results))
+	}
+}
+
+func TestGetAlternativeTitlesMovie(t *testing.T) {
+	srv, m := newTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+
+	resp, err := m.GetAlternativeTitles(ctx, &metadatav1.GetAlternativeTitlesRequest{
+		TmdbId: 550,
+		Type:   metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.TmdbId != 550 {
+		t.Errorf("tmdb_id: %d", resp.TmdbId)
+	}
+	if len(resp.Titles) < 2 {
+		t.Fatalf("expected deduped alts, got %d", len(resp.Titles))
+	}
+	found := false
+	for _, tit := range resp.Titles {
+		if strings.Contains(tit.Title, "Combat") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected French alternate title")
+	}
+}
+
+func TestGetAlternativeTitlesTV(t *testing.T) {
+	srv, m := newTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+
+	resp, err := m.GetAlternativeTitles(ctx, &metadatav1.GetAlternativeTitlesRequest{
+		TmdbId: 1396,
+		Type:   metadatav1.MediaType_MEDIA_TYPE_TV,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Titles) != 2 {
+		t.Fatalf("expected 2 titles, got %d", len(resp.Titles))
 	}
 }
 
@@ -831,10 +937,8 @@ func TestConfigurationCaching(t *testing.T) {
 	defer srv.Close()
 
 	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
-	m.configTTL = 24 * time.Hour
 	ctx := context.Background()
 
-	// First call fetches config.
 	cfg, err := m.getConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -843,21 +947,19 @@ func TestConfigurationCaching(t *testing.T) {
 		t.Fatal("expected non-nil config")
 	}
 
-	// Second call should use cache.
 	cfg2, err := m.getConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg2 != cfg {
-		t.Error("expected cached config (same pointer)")
+	if cfg2 == nil {
+		t.Fatal("expected non-nil cached config")
 	}
 	if fetchCount != 1 {
 		t.Errorf("expected 1 fetch, got %d", fetchCount)
 	}
 
-	// getCachedConfig should also return the same config.
-	if cached := m.getCachedConfig(); cached != cfg {
-		t.Error("getCachedConfig should return cached config")
+	if cached := m.getCachedConfig(); cached == nil {
+		t.Error("getCachedConfig should return last config")
 	}
 }
 
@@ -988,5 +1090,211 @@ func TestFindByExternalIDRequiresID(t *testing.T) {
 	_, err := m.FindByExternalID(context.Background(), &metadatav1.FindByExternalIDRequest{})
 	if err == nil {
 		t.Fatal("expected error for empty external_id")
+	}
+}
+
+func TestResponseCacheHit(t *testing.T) {
+	fetchCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		json.NewEncoder(w).Encode(map[string]any{
+			"page": 1, "total_results": 1, "total_pages": 1,
+			"results": []map[string]any{
+				{"id": 1, "title": "Cached", "media_type": "movie"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
+	ctx := context.Background()
+	req := &metadatav1.SearchRequest{Query: "cached", Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE}
+
+	if _, err := m.Search(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Search(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if fetchCount != 1 {
+		t.Errorf("expected 1 fetch, got %d", fetchCount)
+	}
+}
+
+func TestResponseCacheTTLExpiry(t *testing.T) {
+	fetchCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		json.NewEncoder(w).Encode(map[string]any{
+			"page": 1, "total_results": 0, "total_pages": 0,
+			"results": []map[string]any{},
+		})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
+	m.cache.ttlSearch = time.Millisecond
+	ctx := context.Background()
+	req := &metadatav1.SearchRequest{Query: "expire", Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE}
+
+	if _, err := m.Search(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := m.Search(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if fetchCount != 2 {
+		t.Errorf("expected 2 fetches after TTL expiry, got %d", fetchCount)
+	}
+}
+
+func TestInflightCoalesce(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var fetchCount atomic.Int32
+	var startOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount.Add(1)
+		startOnce.Do(func() { close(started) })
+		<-release
+		json.NewEncoder(w).Encode(map[string]any{
+			"page": 1, "total_results": 0, "total_pages": 0,
+			"results": []map[string]any{},
+		})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
+	m.limiter.rate = 0
+	ctx := context.Background()
+	req := &metadatav1.SearchRequest{Query: "coalesce", Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE}
+
+	errCh := make(chan error, 2)
+	go func() { _, err := m.Search(ctx, req); errCh <- err }()
+	<-started
+	go func() { _, err := m.Search(ctx, req); errCh <- err }()
+	close(release)
+
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := fetchCount.Load(); got != 1 {
+		t.Errorf("expected 1 coalesced fetch, got %d", got)
+	}
+}
+
+func TestTMDB429RetryThenSuccess(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"page": 1, "total_results": 0, "total_pages": 0,
+			"results": []map[string]any{},
+		})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
+	m.limiter.rate = 0
+	m.cache.max = 0
+	_, err := m.Search(context.Background(), &metadatav1.SearchRequest{
+		Query: "retry", Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("expected 2 calls, got %d", calls.Load())
+	}
+}
+
+func TestTMDB429Exhausted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
+	m.limiter.rate = 0
+	m.cache.max = 0
+	_, err := m.Search(context.Background(), &metadatav1.SearchRequest{
+		Query: "fail", Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.ResourceExhausted {
+		t.Fatalf("expected ResourceExhausted, got %v", err)
+	}
+	if !strings.Contains(st.Message(), "rate_limit_exceeded") {
+		t.Errorf("message = %q, want rate_limit_exceeded", st.Message())
+	}
+}
+
+func TestRateLimiterWaitCancel(t *testing.T) {
+	b := &tokenBucket{rate: 1, burst: 1, tokens: 0, last: time.Now()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := b.wait(ctx); err == nil {
+		t.Fatal("expected context cancel error")
+	}
+}
+
+func TestRateLimiterAllowsToken(t *testing.T) {
+	b := &tokenBucket{rate: 1000, burst: 1, tokens: 1, last: time.Now()}
+	ctx := context.Background()
+	if err := b.wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ctx2, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	// tokens depleted; wait should either succeed after refill or cancel
+	_ = b.wait(ctx2)
+}
+
+func TestCacheKeyStripsAPIKey(t *testing.T) {
+	params := url.Values{}
+	params.Set("api_key", "secret")
+	params.Set("query", "x")
+	got := cacheKey("/3/search/movie", params)
+	if strings.Contains(got, "secret") || strings.Contains(got, "api_key") {
+		t.Errorf("cache key leaked api_key: %q", got)
+	}
+	if !strings.Contains(got, "query=x") {
+		t.Errorf("cache key missing query: %q", got)
+	}
+}
+
+func TestTTLForEndpoints(t *testing.T) {
+	c := newHTTPCache()
+	cases := []struct {
+		endpoint string
+		want     time.Duration
+	}{
+		{"/3/configuration", c.ttlConfig},
+		{"/3/search/movie", c.ttlSearch},
+		{"/3/find/tt1", c.ttlSearch},
+		{"/3/trending/movie/week", c.ttlList},
+		{"/3/movie/popular", c.ttlList},
+		{"/3/tv/popular", c.ttlList},
+		{"/3/movie/550", c.ttlDetails},
+		{"/3/tv/1396", c.ttlDetails},
+		{"/3/collection/10", c.ttlDetails},
+		{"/3/genre/movie/list", c.ttlDefault},
+	}
+	for _, tc := range cases {
+		if got := c.ttlFor(tc.endpoint); got != tc.want {
+			t.Errorf("ttlFor(%s) = %v, want %v", tc.endpoint, got, tc.want)
+		}
 	}
 }

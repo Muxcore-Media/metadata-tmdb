@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/Muxcore-Media/core/pkg/contracts"
 	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
@@ -39,9 +42,10 @@ type Module struct {
 	client     *http.Client
 	apiKey     string
 	baseURL    string
-	tmdbConfig *tmdbConfig
-	configTime time.Time
-	configTTL  time.Duration
+	lastConfig *tmdbConfig
+	cache      *httpCache
+	inflight   *inflightGroup
+	limiter    *tokenBucket
 
 	id       string
 	grpcAddr string
@@ -83,11 +87,13 @@ func NewModule(cfg Config) *Module {
 		cfg.BaseURL = v
 	}
 	return &Module{
-		id:        cfg.ID,
-		grpcAddr:  cfg.GRPCAddr,
-		apiKey:    cfg.APIKey,
-		baseURL:   cfg.BaseURL,
-		configTTL: 24 * time.Hour,
+		id:       cfg.ID,
+		grpcAddr: cfg.GRPCAddr,
+		apiKey:   cfg.APIKey,
+		baseURL:  cfg.BaseURL,
+		cache:    newHTTPCache(),
+		inflight: newInflightGroup(),
+		limiter:  newTokenBucket(),
 		client: &http.Client{
 			Timeout: cfg.Timeout,
 		},
@@ -168,10 +174,19 @@ func (m *Module) Search(ctx context.Context, req *metadatav1.SearchRequest) (*me
 	switch req.GetType() {
 	case metadatav1.MediaType_MEDIA_TYPE_MOVIE:
 		endpoint = "/3/search/movie"
+		if req.GetYear() > 0 {
+			params.Set("primary_release_year", strconv.Itoa(int(req.GetYear())))
+		}
 	case metadatav1.MediaType_MEDIA_TYPE_TV:
 		endpoint = "/3/search/tv"
+		if req.GetYear() > 0 {
+			params.Set("first_air_date_year", strconv.Itoa(int(req.GetYear())))
+		}
 	default:
 		endpoint = "/3/search/multi"
+		if req.GetYear() > 0 {
+			params.Set("year", strconv.Itoa(int(req.GetYear())))
+		}
 	}
 
 	var raw struct {
@@ -442,6 +457,82 @@ func (m *Module) FindByExternalID(ctx context.Context, req *metadatav1.FindByExt
 	return &metadatav1.FindByExternalIDResponse{Results: results}, nil
 }
 
+func (m *Module) GetAlternativeTitles(ctx context.Context, req *metadatav1.GetAlternativeTitlesRequest) (*metadatav1.GetAlternativeTitlesResponse, error) {
+	id := req.GetTmdbId()
+	if id == 0 {
+		return nil, fmt.Errorf("tmdb_id required")
+	}
+
+	var endpoint string
+	switch req.GetType() {
+	case metadatav1.MediaType_MEDIA_TYPE_TV:
+		endpoint = fmt.Sprintf("/3/tv/%d/alternative_titles", id)
+	default:
+		endpoint = fmt.Sprintf("/3/movie/%d/alternative_titles", id)
+	}
+
+	var raw struct {
+		ID     int32 `json:"id"`
+		Titles []struct {
+			ISO   string `json:"iso_3166_1"`
+			Title string `json:"title"`
+			Type  string `json:"type"`
+		} `json:"titles"`
+		Results []struct {
+			ISO   string `json:"iso_3166_1"`
+			Title string `json:"title"`
+			Type  string `json:"type"`
+		} `json:"results"`
+	}
+	if err := m.tmdbGet(ctx, endpoint, nil, &raw); err != nil {
+		return nil, err
+	}
+
+	type altEntry struct {
+		ISO   string
+		Title string
+		Type  string
+	}
+	entries := make([]altEntry, 0, len(raw.Titles)+len(raw.Results))
+	for _, e := range raw.Titles {
+		entries = append(entries, altEntry{ISO: e.ISO, Title: e.Title, Type: e.Type})
+	}
+	if len(entries) == 0 {
+		for _, e := range raw.Results {
+			entries = append(entries, altEntry{ISO: e.ISO, Title: e.Title, Type: e.Type})
+		}
+	}
+
+	out := make([]*metadatav1.AlternativeTitle, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		title := strings.TrimSpace(e.Title)
+		if title == "" {
+			continue
+		}
+		key := strings.ToLower(title)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		typ := e.Type
+		if typ == "" {
+			typ = e.ISO
+		} else if e.ISO != "" {
+			typ = e.ISO + ":" + typ
+		}
+		out = append(out, &metadatav1.AlternativeTitle{
+			Title: title,
+			Type:  typ,
+		})
+	}
+
+	return &metadatav1.GetAlternativeTitlesResponse{
+		TmdbId: id,
+		Titles: out,
+	}, nil
+}
+
 func (m *Module) ListPopular(ctx context.Context, req *metadatav1.ListPopularRequest) (*metadatav1.ListPopularResponse, error) {
 	endpoint := "/3/movie/popular"
 	switch req.GetType() {
@@ -493,61 +584,129 @@ func (m *Module) tmdbGet(ctx context.Context, endpoint string, params url.Values
 	if params == nil {
 		params = url.Values{}
 	}
-	params.Set("api_key", m.apiKey)
+	key := cacheKey(endpoint, params)
 
-	u := m.baseURL + endpoint + "?" + params.Encode()
+	if body, ok := m.cache.get(key); ok {
+		if err := json.Unmarshal(body, dest); err != nil {
+			return fmt.Errorf("decode tmdb response: %w", err)
+		}
+		return nil
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	body, err := m.inflight.do(key, func() ([]byte, error) {
+		if cached, ok := m.cache.get(key); ok {
+			return cached, nil
+		}
+		return m.tmdbFetch(ctx, endpoint, params, key)
+	})
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return err
 	}
-
-	resp, err := m.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("tmdb request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("tmdb returned %s", resp.Status)
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
+	if err := json.Unmarshal(body, dest); err != nil {
 		return fmt.Errorf("decode tmdb response: %w", err)
 	}
 	return nil
 }
 
+func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Values, key string) ([]byte, error) {
+	q := cloneValues(params)
+	q.Set("api_key", m.apiKey)
+	u := m.baseURL + endpoint + "?" + q.Encode()
+
+	var retryAfterSec int
+	for attempt := 0; ; attempt++ {
+		if err := m.limiter.wait(ctx); err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+
+		resp, err := m.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("tmdb request: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfterSec = parseRetryAfter(resp.Header.Get("Retry-After"))
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if attempt >= 3 {
+				msg := fmt.Sprintf("rate_limit_exceeded: TMDB API rate limit reached. Retry in %d seconds.", retryAfterSec)
+				return nil, status.Error(codes.ResourceExhausted, msg)
+			}
+			wait := time.Duration(retryAfterSec) * time.Second
+			if wait > 10*time.Second {
+				wait = 10 * time.Second
+			}
+			if wait <= 0 {
+				wait = time.Millisecond
+			}
+			timer := time.NewTimer(wait)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read tmdb response: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, status.Error(codes.NotFound, "tmdb returned 404 Not Found")
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("tmdb returned %s", resp.Status)
+		}
+
+		m.cache.set(key, body, m.cache.ttlFor(endpoint))
+		return body, nil
+	}
+}
+
+func cloneValues(v url.Values) url.Values {
+	out := make(url.Values, len(v))
+	for k, vals := range v {
+		out[k] = append([]string(nil), vals...)
+	}
+	return out
+}
+
+func parseRetryAfter(h string) int {
+	if h == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(h))
+	if err != nil || n < 0 {
+		return 1
+	}
+	return n
+}
+
 func (m *Module) getConfig(ctx context.Context) (*tmdbConfig, error) {
-	m.mu.RLock()
-	if m.tmdbConfig != nil && time.Since(m.configTime) < m.configTTL {
-		cfg := m.tmdbConfig
-		m.mu.RUnlock()
-		return cfg, nil
-	}
-	m.mu.RUnlock()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.tmdbConfig != nil && time.Since(m.configTime) < m.configTTL {
-		return m.tmdbConfig, nil
-	}
-
 	var cfg tmdbConfig
 	if err := m.tmdbGet(ctx, "/3/configuration", nil, &cfg); err != nil {
 		return nil, fmt.Errorf("fetch tmdb config: %w", err)
 	}
-
-	m.tmdbConfig = &cfg
-	m.configTime = time.Now()
-	return &cfg, nil
+	out := &cfg
+	m.mu.Lock()
+	m.lastConfig = out
+	m.mu.Unlock()
+	return out, nil
 }
 
 func (m *Module) getCachedConfig() *tmdbConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.tmdbConfig
+	return m.lastConfig
 }
 
 func (m *Module) imageURL(path string, cfg *tmdbConfig) string {
