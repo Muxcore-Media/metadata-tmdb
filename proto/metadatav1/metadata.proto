@@ -6,9 +6,12 @@ service MetadataService {
   rpc Search(SearchRequest) returns (SearchResponse);
   rpc GetMovieDetails(GetMovieDetailsRequest) returns (GetMovieDetailsResponse);
   rpc GetTVDetails(GetTVDetailsRequest) returns (GetTVDetailsResponse);
+  rpc GetSeasonDetails(GetSeasonDetailsRequest) returns (GetSeasonDetailsResponse);
+  rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse);
   rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse);
   rpc ListTrending(ListTrendingRequest) returns (ListTrendingResponse);
   rpc ListPopular(ListPopularRequest) returns (ListPopularResponse);
+  rpc FindByExternalID(FindByExternalIDRequest) returns (FindByExternalIDResponse);
 }
 
 message SearchRequest {
@@ -90,6 +93,32 @@ message Collection {
   string name = 2;
   string poster_path = 3;
   string backdrop_path = 4;
+}
+
+message GetCollectionRequest {
+  int32 tmdb_id = 1;
+  string language = 2;
+}
+
+message GetCollectionResponse {
+  int32 id = 1;
+  string name = 2;
+  string overview = 3;
+  string poster_path = 4;
+  string backdrop_path = 5;
+  repeated CollectionPart parts = 6;
+}
+
+message CollectionPart {
+  int32 id = 1;
+  string title = 2;
+  string original_title = 3;
+  string overview = 4;
+  string poster_path = 5;
+  string backdrop_path = 6;
+  string release_date = 7;
+  double vote_average = 8;
+  MediaType media_type = 9;
 }
 
 message Genre {
@@ -200,6 +229,37 @@ message Season {
   double vote_average = 8;
 }
 
+message GetSeasonDetailsRequest {
+  int32 tmdb_id = 1;
+  int32 season_number = 2;
+  string language = 3;
+}
+
+message Episode {
+  int32 id = 1;
+  string name = 2;
+  string overview = 3;
+  string air_date = 4;
+  int32 episode_number = 5;
+  int32 season_number = 6;
+  string still_path = 7;
+  int32 runtime = 8;
+  double vote_average = 9;
+  int32 vote_count = 10;
+  string production_code = 11;
+}
+
+message GetSeasonDetailsResponse {
+  int32 id = 1;
+  string name = 2;
+  string overview = 3;
+  string poster_path = 4;
+  string air_date = 5;
+  int32 season_number = 6;
+  double vote_average = 7;
+  repeated Episode episodes = 8;
+}
+
 message GetConfigurationRequest {}
 
 message GetConfigurationResponse {
@@ -250,4 +310,14 @@ message ListPopularResponse {
   int32 total_results = 2;
   int32 total_pages = 3;
   int32 page = 4;
+}
+
+message FindByExternalIDRequest {
+  string external_id = 1;
+  string external_source = 2; // e.g. "imdb_id"
+  string language = 3;
+}
+
+message FindByExternalIDResponse {
+  repeated SearchResult results = 1;
 }
