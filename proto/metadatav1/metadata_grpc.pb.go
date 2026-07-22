@@ -19,15 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MetadataService_Search_FullMethodName           = "/muxcore.metadata.v1.MetadataService/Search"
-	MetadataService_GetMovieDetails_FullMethodName  = "/muxcore.metadata.v1.MetadataService/GetMovieDetails"
-	MetadataService_GetTVDetails_FullMethodName     = "/muxcore.metadata.v1.MetadataService/GetTVDetails"
-	MetadataService_GetSeasonDetails_FullMethodName = "/muxcore.metadata.v1.MetadataService/GetSeasonDetails"
-	MetadataService_GetCollection_FullMethodName    = "/muxcore.metadata.v1.MetadataService/GetCollection"
-	MetadataService_GetConfiguration_FullMethodName = "/muxcore.metadata.v1.MetadataService/GetConfiguration"
-	MetadataService_ListTrending_FullMethodName     = "/muxcore.metadata.v1.MetadataService/ListTrending"
-	MetadataService_ListPopular_FullMethodName      = "/muxcore.metadata.v1.MetadataService/ListPopular"
-	MetadataService_FindByExternalID_FullMethodName = "/muxcore.metadata.v1.MetadataService/FindByExternalID"
+	MetadataService_Search_FullMethodName               = "/muxcore.metadata.v1.MetadataService/Search"
+	MetadataService_GetMovieDetails_FullMethodName      = "/muxcore.metadata.v1.MetadataService/GetMovieDetails"
+	MetadataService_GetTVDetails_FullMethodName         = "/muxcore.metadata.v1.MetadataService/GetTVDetails"
+	MetadataService_GetSeasonDetails_FullMethodName     = "/muxcore.metadata.v1.MetadataService/GetSeasonDetails"
+	MetadataService_GetCollection_FullMethodName        = "/muxcore.metadata.v1.MetadataService/GetCollection"
+	MetadataService_GetConfiguration_FullMethodName     = "/muxcore.metadata.v1.MetadataService/GetConfiguration"
+	MetadataService_ListTrending_FullMethodName         = "/muxcore.metadata.v1.MetadataService/ListTrending"
+	MetadataService_ListPopular_FullMethodName          = "/muxcore.metadata.v1.MetadataService/ListPopular"
+	MetadataService_FindByExternalID_FullMethodName     = "/muxcore.metadata.v1.MetadataService/FindByExternalID"
+	MetadataService_GetAlternativeTitles_FullMethodName = "/muxcore.metadata.v1.MetadataService/GetAlternativeTitles"
 )
 
 // MetadataServiceClient is the client API for MetadataService service.
@@ -43,6 +44,7 @@ type MetadataServiceClient interface {
 	ListTrending(ctx context.Context, in *ListTrendingRequest, opts ...grpc.CallOption) (*ListTrendingResponse, error)
 	ListPopular(ctx context.Context, in *ListPopularRequest, opts ...grpc.CallOption) (*ListPopularResponse, error)
 	FindByExternalID(ctx context.Context, in *FindByExternalIDRequest, opts ...grpc.CallOption) (*FindByExternalIDResponse, error)
+	GetAlternativeTitles(ctx context.Context, in *GetAlternativeTitlesRequest, opts ...grpc.CallOption) (*GetAlternativeTitlesResponse, error)
 }
 
 type metadataServiceClient struct {
@@ -134,6 +136,15 @@ func (c *metadataServiceClient) FindByExternalID(ctx context.Context, in *FindBy
 	return out, nil
 }
 
+func (c *metadataServiceClient) GetAlternativeTitles(ctx context.Context, in *GetAlternativeTitlesRequest, opts ...grpc.CallOption) (*GetAlternativeTitlesResponse, error) {
+	out := new(GetAlternativeTitlesResponse)
+	err := c.cc.Invoke(ctx, MetadataService_GetAlternativeTitles_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MetadataServiceServer is the server API for MetadataService service.
 // All implementations must embed UnimplementedMetadataServiceServer
 // for forward compatibility
@@ -147,6 +158,7 @@ type MetadataServiceServer interface {
 	ListTrending(context.Context, *ListTrendingRequest) (*ListTrendingResponse, error)
 	ListPopular(context.Context, *ListPopularRequest) (*ListPopularResponse, error)
 	FindByExternalID(context.Context, *FindByExternalIDRequest) (*FindByExternalIDResponse, error)
+	GetAlternativeTitles(context.Context, *GetAlternativeTitlesRequest) (*GetAlternativeTitlesResponse, error)
 	mustEmbedUnimplementedMetadataServiceServer()
 }
 
@@ -180,6 +192,9 @@ func (UnimplementedMetadataServiceServer) ListPopular(context.Context, *ListPopu
 }
 func (UnimplementedMetadataServiceServer) FindByExternalID(context.Context, *FindByExternalIDRequest) (*FindByExternalIDResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FindByExternalID not implemented")
+}
+func (UnimplementedMetadataServiceServer) GetAlternativeTitles(context.Context, *GetAlternativeTitlesRequest) (*GetAlternativeTitlesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAlternativeTitles not implemented")
 }
 func (UnimplementedMetadataServiceServer) mustEmbedUnimplementedMetadataServiceServer() {}
 
@@ -356,6 +371,24 @@ func _MetadataService_FindByExternalID_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MetadataService_GetAlternativeTitles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAlternativeTitlesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MetadataServiceServer).GetAlternativeTitles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MetadataService_GetAlternativeTitles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MetadataServiceServer).GetAlternativeTitles(ctx, req.(*GetAlternativeTitlesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MetadataService_ServiceDesc is the grpc.ServiceDesc for MetadataService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -398,6 +431,10 @@ var MetadataService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FindByExternalID",
 			Handler:    _MetadataService_FindByExternalID_Handler,
+		},
+		{
+			MethodName: "GetAlternativeTitles",
+			Handler:    _MetadataService_GetAlternativeTitles_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
