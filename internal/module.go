@@ -242,6 +242,88 @@ func (m *Module) GetTVDetails(ctx context.Context, req *metadatav1.GetTVDetailsR
 	return raw.toProto(cfg), nil
 }
 
+func (m *Module) GetSeasonDetails(ctx context.Context, req *metadatav1.GetSeasonDetailsRequest) (*metadatav1.GetSeasonDetailsResponse, error) {
+	id := req.GetTmdbId()
+	season := req.GetSeasonNumber()
+	endpoint := fmt.Sprintf("/3/tv/%d/season/%d", id, season)
+
+	params := url.Values{}
+	if req.GetLanguage() != "" {
+		params.Set("language", req.GetLanguage())
+	}
+
+	var raw seasonDetailRaw
+	if err := m.tmdbGet(ctx, endpoint, params, &raw); err != nil {
+		return nil, err
+	}
+
+	return raw.toProto(), nil
+}
+
+func (m *Module) GetCollection(ctx context.Context, req *metadatav1.GetCollectionRequest) (*metadatav1.GetCollectionResponse, error) {
+	id := req.GetTmdbId()
+	if id == 0 {
+		return nil, fmt.Errorf("tmdb_id required")
+	}
+	endpoint := fmt.Sprintf("/3/collection/%d", id)
+	params := url.Values{}
+	if req.GetLanguage() != "" {
+		params.Set("language", req.GetLanguage())
+	}
+
+	var raw collectionDetailRaw
+	if err := m.tmdbGet(ctx, endpoint, params, &raw); err != nil {
+		return nil, err
+	}
+
+	resp := &metadatav1.GetCollectionResponse{
+		Id:           raw.ID,
+		Name:         raw.Name,
+		Overview:     raw.Overview,
+		PosterPath:   raw.PosterPath,
+		BackdropPath: raw.BackdropPath,
+	}
+	for _, p := range raw.Parts {
+		mt := metadatav1.MediaType_MEDIA_TYPE_MOVIE
+		if p.MediaType == "tv" {
+			mt = metadatav1.MediaType_MEDIA_TYPE_TV
+		}
+		resp.Parts = append(resp.Parts, &metadatav1.CollectionPart{
+			Id:            p.ID,
+			Title:         p.Title,
+			OriginalTitle: p.OriginalTitle,
+			Overview:      p.Overview,
+			PosterPath:    p.PosterPath,
+			BackdropPath:  p.BackdropPath,
+			ReleaseDate:   p.ReleaseDate,
+			VoteAverage:   p.VoteAverage,
+			MediaType:     mt,
+		})
+	}
+	return resp, nil
+}
+
+type collectionDetailRaw struct {
+	ID           int32               `json:"id"`
+	Name         string              `json:"name"`
+	Overview     string              `json:"overview"`
+	PosterPath   string              `json:"poster_path"`
+	BackdropPath string              `json:"backdrop_path"`
+	Parts        []collectionPartRaw `json:"parts"`
+}
+
+type collectionPartRaw struct {
+	ID            int32   `json:"id"`
+	Title         string  `json:"title"`
+	OriginalTitle string  `json:"original_title"`
+	Overview      string  `json:"overview"`
+	PosterPath    string  `json:"poster_path"`
+	BackdropPath  string  `json:"backdrop_path"`
+	ReleaseDate   string  `json:"release_date"`
+	VoteAverage   float64 `json:"vote_average"`
+	MediaType     string  `json:"media_type"`
+}
+
 func (m *Module) GetConfiguration(ctx context.Context, req *metadatav1.GetConfigurationRequest) (*metadatav1.GetConfigurationResponse, error) {
 	cfg, err := m.getConfig(ctx)
 	if err != nil {
@@ -308,6 +390,56 @@ func (m *Module) ListTrending(ctx context.Context, req *metadatav1.ListTrendingR
 		TotalPages:   int32(raw.TotalPages),
 		Page:         int32(raw.Page),
 	}, nil
+}
+
+func (m *Module) FindByExternalID(ctx context.Context, req *metadatav1.FindByExternalIDRequest) (*metadatav1.FindByExternalIDResponse, error) {
+	extID := strings.TrimSpace(req.GetExternalId())
+	if extID == "" {
+		return nil, fmt.Errorf("external_id is required")
+	}
+	source := strings.TrimSpace(req.GetExternalSource())
+	if source == "" {
+		source = "imdb_id"
+	}
+
+	params := url.Values{}
+	params.Set("external_source", source)
+	if req.GetLanguage() != "" {
+		params.Set("language", req.GetLanguage())
+	}
+
+	endpoint := fmt.Sprintf("/3/find/%s", url.PathEscape(extID))
+	var raw struct {
+		MovieResults []json.RawMessage `json:"movie_results"`
+		TVResults    []json.RawMessage `json:"tv_results"`
+	}
+	if err := m.tmdbGet(ctx, endpoint, params, &raw); err != nil {
+		return nil, err
+	}
+
+	results := make([]*metadatav1.SearchResult, 0, len(raw.MovieResults)+len(raw.TVResults))
+	for _, r := range raw.MovieResults {
+		sr := m.parseSearchResult(r)
+		if sr == nil {
+			continue
+		}
+		if sr.MediaType == metadatav1.MediaType_MEDIA_TYPE_UNSPECIFIED {
+			sr.MediaType = metadatav1.MediaType_MEDIA_TYPE_MOVIE
+		}
+		results = append(results, sr)
+	}
+	for _, r := range raw.TVResults {
+		sr := m.parseSearchResult(r)
+		if sr == nil {
+			continue
+		}
+		if sr.MediaType == metadatav1.MediaType_MEDIA_TYPE_UNSPECIFIED {
+			sr.MediaType = metadatav1.MediaType_MEDIA_TYPE_TV
+		}
+		results = append(results, sr)
+	}
+
+	return &metadatav1.FindByExternalIDResponse{Results: results}, nil
 }
 
 func (m *Module) ListPopular(ctx context.Context, req *metadatav1.ListPopularRequest) (*metadatav1.ListPopularResponse, error) {
@@ -615,6 +747,59 @@ type seasonRaw struct {
 	SeasonNumber int     `json:"season_number"`
 	EpisodeCount int     `json:"episode_count"`
 	VoteAverage  float64 `json:"vote_average"`
+}
+
+type seasonDetailRaw struct {
+	ID           int          `json:"id"`
+	Name         string       `json:"name"`
+	Overview     string       `json:"overview"`
+	PosterPath   string       `json:"poster_path"`
+	AirDate      string       `json:"air_date"`
+	SeasonNumber int          `json:"season_number"`
+	VoteAverage  float64      `json:"vote_average"`
+	Episodes     []episodeRaw `json:"episodes"`
+}
+
+type episodeRaw struct {
+	ID             int     `json:"id"`
+	Name           string  `json:"name"`
+	Overview       string  `json:"overview"`
+	AirDate        string  `json:"air_date"`
+	EpisodeNumber  int     `json:"episode_number"`
+	SeasonNumber   int     `json:"season_number"`
+	StillPath      string  `json:"still_path"`
+	Runtime        int     `json:"runtime"`
+	VoteAverage    float64 `json:"vote_average"`
+	VoteCount      int     `json:"vote_count"`
+	ProductionCode string  `json:"production_code"`
+}
+
+func (r *seasonDetailRaw) toProto() *metadatav1.GetSeasonDetailsResponse {
+	resp := &metadatav1.GetSeasonDetailsResponse{
+		Id:           int32(r.ID),
+		Name:         r.Name,
+		Overview:     r.Overview,
+		PosterPath:   r.PosterPath,
+		AirDate:      r.AirDate,
+		SeasonNumber: int32(r.SeasonNumber),
+		VoteAverage:  r.VoteAverage,
+	}
+	for _, e := range r.Episodes {
+		resp.Episodes = append(resp.Episodes, &metadatav1.Episode{
+			Id:             int32(e.ID),
+			Name:           e.Name,
+			Overview:       e.Overview,
+			AirDate:        e.AirDate,
+			EpisodeNumber:  int32(e.EpisodeNumber),
+			SeasonNumber:   int32(e.SeasonNumber),
+			StillPath:      e.StillPath,
+			Runtime:        int32(e.Runtime),
+			VoteAverage:    e.VoteAverage,
+			VoteCount:      int32(e.VoteCount),
+			ProductionCode: e.ProductionCode,
+		})
+	}
+	return resp
 }
 
 type creatorRaw struct {
