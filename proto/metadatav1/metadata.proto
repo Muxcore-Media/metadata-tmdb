@@ -12,6 +12,7 @@ service MetadataService {
   rpc ListTrending(ListTrendingRequest) returns (ListTrendingResponse);
   rpc ListPopular(ListPopularRequest) returns (ListPopularResponse);
   rpc FindByExternalID(FindByExternalIDRequest) returns (FindByExternalIDResponse);
+  rpc GetAlternativeTitles(GetAlternativeTitlesRequest) returns (GetAlternativeTitlesResponse);
 }
 
 message SearchRequest {
@@ -19,6 +20,7 @@ message SearchRequest {
   MediaType type = 2;
   int32 page = 3;
   string language = 4;
+  int32 year = 5;
 }
 
 enum MediaType {
@@ -320,4 +322,19 @@ message FindByExternalIDRequest {
 
 message FindByExternalIDResponse {
   repeated SearchResult results = 1;
+}
+
+message GetAlternativeTitlesRequest {
+  int32 tmdb_id = 1;
+  MediaType type = 2;
+}
+
+message AlternativeTitle {
+  string title = 1;
+  string type = 2; // country / iso / title type from TMDB
+}
+
+message GetAlternativeTitlesResponse {
+  int32 tmdb_id = 1;
+  repeated AlternativeTitle titles = 2;
 }
