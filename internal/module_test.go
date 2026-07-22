@@ -74,6 +74,14 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				"production_companies": []map[string]any{{"id": 508, "name": "20th Century Fox", "origin_country": "US"}},
 				"spoken_languages":     []map[string]any{{"iso_639_1": "en", "name": "English"}},
 			})
+		case "/3/collection/10":
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 10, "name": "Star Wars Collection", "overview": "A long time ago...",
+				"poster_path": "/c.jpg", "backdrop_path": "/b.jpg",
+				"parts": []map[string]any{
+					{"id": 11, "title": "A New Hope", "release_date": "1977-05-25", "media_type": "movie", "vote_average": 8.2},
+				},
+			})
 		case "/3/tv/1396":
 			json.NewEncoder(w).Encode(map[string]any{
 				"id": 1396, "name": "Breaking Bad",
@@ -88,6 +96,58 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				"genres": []map[string]any{{"id": 18, "name": "Drama"}, {"id": 80, "name": "Crime"}},
 				"seasons": []map[string]any{
 					{"id": 1, "name": "Season 1", "season_number": 1, "episode_count": 7, "air_date": "2008-01-20"},
+				},
+			})
+		case "/3/tv/1396/season/1":
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 3572, "name": "Season 1", "overview": "Season one.",
+				"poster_path": "/poster.jpg", "air_date": "2008-01-20",
+				"season_number": 1, "vote_average": 8.2,
+				"episodes": []map[string]any{
+					{
+						"id": 62085, "name": "Pilot", "overview": "Walter White.",
+						"air_date": "2008-01-20", "episode_number": 1, "season_number": 1,
+						"still_path": "/still.jpg", "runtime": 58,
+						"vote_average": 8.0, "vote_count": 100, "production_code": "101",
+					},
+					{
+						"id": 62086, "name": "Cat's in the Bag...", "overview": "Cleanup.",
+						"air_date": "2008-01-27", "episode_number": 2, "season_number": 1,
+						"still_path": "/still2.jpg", "runtime": 48,
+						"vote_average": 7.9, "vote_count": 90, "production_code": "102",
+					},
+				},
+			})
+		case "/3/find/tt0137523":
+			if r.URL.Query().Get("external_source") != "imdb_id" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"movie_results": []map[string]any{
+					{
+						"id": 550, "title": "Fight Club",
+						"overview":     "A ticking-clock thriller.",
+						"poster_path":  "/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
+						"release_date": "1999-10-15",
+						"vote_average": 8.4, "vote_count": 25000,
+						"media_type": "movie",
+					},
+				},
+				"tv_results": []map[string]any{},
+			})
+		case "/3/find/tt0903747":
+			json.NewEncoder(w).Encode(map[string]any{
+				"movie_results": []map[string]any{},
+				"tv_results": []map[string]any{
+					{
+						"id": 1396, "name": "Breaking Bad",
+						"overview":       "A high school chemistry teacher.",
+						"poster_path":    "/ggFHVNu6YYI5L9W6QN5CvfWgmd.jpg",
+						"first_air_date": "2008-01-20",
+						"vote_average":   8.9, "vote_count": 10000,
+						"media_type": "tv",
+					},
 				},
 			})
 		default:
@@ -203,6 +263,23 @@ func TestGetMovieDetails(t *testing.T) {
 	}
 }
 
+func TestGetCollection(t *testing.T) {
+	srv, m := newTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+
+	resp, err := m.GetCollection(ctx, &metadatav1.GetCollectionRequest{TmdbId: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Name != "Star Wars Collection" || len(resp.Parts) != 1 {
+		t.Fatalf("collection: %+v", resp)
+	}
+	if resp.Parts[0].Title != "A New Hope" {
+		t.Errorf("part title=%q", resp.Parts[0].Title)
+	}
+}
+
 func TestGetTVDetails(t *testing.T) {
 	srv, m := newTestServer(t)
 	defer srv.Close()
@@ -227,6 +304,48 @@ func TestGetTVDetails(t *testing.T) {
 	}
 	if resp.Seasons[0].Name != "Season 1" {
 		t.Errorf("expected 'Season 1', got %s", resp.Seasons[0].Name)
+	}
+}
+
+func TestGetSeasonDetails(t *testing.T) {
+	srv, m := newTestServer(t)
+	defer srv.Close()
+	ctx := context.Background()
+
+	resp, err := m.GetSeasonDetails(ctx, &metadatav1.GetSeasonDetailsRequest{
+		TmdbId:       1396,
+		SeasonNumber: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Name != "Season 1" {
+		t.Errorf("expected 'Season 1', got %s", resp.Name)
+	}
+	if resp.SeasonNumber != 1 {
+		t.Errorf("expected season 1, got %d", resp.SeasonNumber)
+	}
+	if len(resp.Episodes) != 2 {
+		t.Fatalf("expected 2 episodes, got %d", len(resp.Episodes))
+	}
+	ep := resp.Episodes[0]
+	if ep.Name != "Pilot" {
+		t.Errorf("expected 'Pilot', got %s", ep.Name)
+	}
+	if ep.EpisodeNumber != 1 {
+		t.Errorf("expected episode 1, got %d", ep.EpisodeNumber)
+	}
+	if ep.Id != 62085 {
+		t.Errorf("expected tmdb id 62085, got %d", ep.Id)
+	}
+	if ep.StillPath != "/still.jpg" {
+		t.Errorf("expected still path, got %s", ep.StillPath)
+	}
+	if ep.Runtime != 58 {
+		t.Errorf("expected runtime 58, got %d", ep.Runtime)
+	}
+	if ep.ProductionCode != "101" {
+		t.Errorf("expected production code 101, got %s", ep.ProductionCode)
 	}
 }
 
@@ -820,5 +939,54 @@ func TestTVDetailRawToProtoEmptySeasonsCreatorsNetworks(t *testing.T) {
 	}
 	if len(p.Genres) != 0 {
 		t.Error("expected empty genres")
+	}
+}
+
+func TestFindByExternalIDMovie(t *testing.T) {
+	_, m := newTestServer(t)
+	ctx := context.Background()
+	resp, err := m.FindByExternalID(ctx, &metadatav1.FindByExternalIDRequest{
+		ExternalId:     "tt0137523",
+		ExternalSource: "imdb_id",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp.Results))
+	}
+	if resp.Results[0].Id != 550 {
+		t.Errorf("expected id 550, got %d", resp.Results[0].Id)
+	}
+	if resp.Results[0].MediaType != metadatav1.MediaType_MEDIA_TYPE_MOVIE {
+		t.Errorf("expected movie, got %v", resp.Results[0].MediaType)
+	}
+}
+
+func TestFindByExternalIDTV(t *testing.T) {
+	_, m := newTestServer(t)
+	ctx := context.Background()
+	resp, err := m.FindByExternalID(ctx, &metadatav1.FindByExternalIDRequest{
+		ExternalId: "tt0903747",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp.Results))
+	}
+	if resp.Results[0].Id != 1396 {
+		t.Errorf("expected id 1396, got %d", resp.Results[0].Id)
+	}
+	if resp.Results[0].MediaType != metadatav1.MediaType_MEDIA_TYPE_TV {
+		t.Errorf("expected tv, got %v", resp.Results[0].MediaType)
+	}
+}
+
+func TestFindByExternalIDRequiresID(t *testing.T) {
+	_, m := newTestServer(t)
+	_, err := m.FindByExternalID(context.Background(), &metadatav1.FindByExternalIDRequest{})
+	if err == nil {
+		t.Fatal("expected error for empty external_id")
 	}
 }
