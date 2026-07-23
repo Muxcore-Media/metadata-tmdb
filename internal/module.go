@@ -108,7 +108,7 @@ func (m *Module) Info() contracts.ModuleInfo {
 		Roles:        []string{"metadata"},
 		Description:  "TMDB (The Movie Database) metadata provider for movies and TV shows",
 		Author:       "MuxCore",
-		Capabilities: []string{"metadata"},
+		Capabilities: []string{"metadata", "metadata.tmdb", "settings"},
 		Contracts: []contracts.ContractDeclaration{
 			{
 				Repo:      "github.com/Muxcore-Media/contracts-metadata",
@@ -134,6 +134,7 @@ func (m *Module) Init(ctx context.Context) error {
 func (m *Module) Start(ctx context.Context) error {
 	m.grpcSrv = grpc.NewServer()
 	metadatav1.RegisterMetadataServiceServer(m.grpcSrv, m)
+	m.registerSettingsMesh(m.grpcSrv)
 	go func() {
 		slog.Info("metadata-tmdb gRPC service started", "addr", m.grpcAddr)
 		if err := m.grpcSrv.Serve(m.lis); err != nil {
