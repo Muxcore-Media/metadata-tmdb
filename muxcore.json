@@ -3,8 +3,14 @@
   "description": "TMDB (The Movie Database) metadata provider for movies and TV shows",
   "version": "0.1.0",
   "author": "MuxCore",
-  "roles": ["metadata"],
-  "capabilities": ["metadata.tmdb"],
+  "roles": [
+    "metadata"
+  ],
+  "capabilities": [
+    "metadata",
+    "metadata.tmdb",
+    "settings"
+  ],
   "contracts": [
     {
       "repo": "github.com/Muxcore-Media/contracts-metadata",

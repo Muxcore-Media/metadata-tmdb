@@ -4,12 +4,17 @@ TMDB (The Movie Database) metadata provider for movies and TV shows.
 
 ## Key Features
 
-- Fetch movie details (title, overview, release date, runtime, genres, cast)
-- Fetch TV show details with season and episode info
-- Search by title, IMDb ID, or TMDB ID
+- Search movies/TV (title query; optional year/language/page)
+- Movie and TV details (title, overview, dates, runtime, genres, companies, etc.)
+- Season details with episode list
+- Movie collections
+- Find by external ID (default source `imdb_id`)
+- Alternative titles
+- Trending and popular lists
 - Image configuration (poster/backdrop sizes, base URLs)
 - In-process response cache, request coalescing, and outbound rate limiting
-- Configurable API base URL and timeout
+- Runtime settings mesh (`api_key`, `base_url`)
+- Configurable API base URL (HTTP client timeout defaults to 15s)
 
 ## Configuration
 
@@ -25,10 +30,11 @@ TMDB (The Movie Database) metadata provider for movies and TV shows.
 | `TMDB_CACHE_TTL_LIST` | `1h` | TTL for trending/popular |
 | `TMDB_RATE` | `35` | Outbound requests per second (`0` = unlimited) |
 | `TMDB_BURST` | `40` | Token-bucket burst size |
+| `MUXCORE_INSECURE_DISABLE_TLS` | unset | Set `true` for insecure gRPC to core (dev) |
 
 ## Capability
 
-`metadata.tmdb` — TMDB metadata provider
+`metadata`, `metadata.tmdb`, `settings` — TMDB metadata provider with runtime settings
 
 ## Dependencies
 
