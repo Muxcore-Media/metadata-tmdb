@@ -66,7 +66,7 @@ func NewModule(cfg Config) *Module {
 		cfg.ID = "metadata-tmdb"
 	}
 	if cfg.GRPCAddr == "" {
-		cfg.GRPCAddr = ":9410"
+		cfg.GRPCAddr = ":9411"
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 15 * time.Second
