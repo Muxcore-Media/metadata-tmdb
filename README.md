@@ -22,7 +22,7 @@ TMDB (The Movie Database) metadata provider for movies and TV shows.
 |---------|---------|-------------|
 | `TMDB_API_KEY` | `""` | TMDB API key |
 | `MUXCORE_CFG_TMDB_API_KEY` | `""` | Alternative TMDB API key |
-| `METADATA_GRPC_ADDR` | `:9410` | gRPC listen address |
+| `METADATA_GRPC_ADDR` | `:9411` | gRPC listen address |
 | `TMDB_BASE_URL` | `https://api.themoviedb.org` | TMDB API base URL |
 | `TMDB_CACHE_MAX` | `1024` | Max cached responses (`0` disables) |
 | `TMDB_CACHE_TTL_DETAILS` | `6h` | TTL for movie/TV/collection details |
