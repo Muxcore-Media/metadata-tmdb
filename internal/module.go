@@ -42,6 +42,7 @@ type Module struct {
 	client     *http.Client
 	apiKey     string
 	baseURL    string
+	fixture    bool
 	lastConfig *tmdbConfig
 	cache      *httpCache
 	inflight   *inflightGroup
@@ -59,6 +60,7 @@ type Config struct {
 	APIKey   string
 	Timeout  time.Duration
 	BaseURL  string
+	Fixture  bool
 }
 
 func NewModule(cfg Config) *Module {
@@ -86,11 +88,18 @@ func NewModule(cfg Config) *Module {
 	if v := os.Getenv("TMDB_BASE_URL"); v != "" {
 		cfg.BaseURL = v
 	}
+	if v := os.Getenv("TMDB_FIXTURE"); v == "1" || strings.EqualFold(v, "true") {
+		cfg.Fixture = true
+	}
+	if strings.EqualFold(cfg.APIKey, "fixture") {
+		cfg.Fixture = true
+	}
 	return &Module{
 		id:       cfg.ID,
 		grpcAddr: cfg.GRPCAddr,
 		apiKey:   cfg.APIKey,
 		baseURL:  cfg.BaseURL,
+		fixture:  cfg.Fixture,
 		cache:    newHTTPCache(),
 		inflight: newInflightGroup(),
 		limiter:  newTokenBucket(),
@@ -100,11 +109,15 @@ func NewModule(cfg Config) *Module {
 	}
 }
 
+func (m *Module) fixtureMode() bool {
+	return m.fixture || strings.EqualFold(m.apiKey, "fixture")
+}
+
 func (m *Module) Info() contracts.ModuleInfo {
 	return contracts.ModuleInfo{
 		ID:           m.id,
 		Name:         "Metadata TMDB",
-		Version:      "0.1.0",
+		Version:      "0.1.1",
 		Roles:        []string{"metadata"},
 		Description:  "TMDB (The Movie Database) metadata provider for movies and TV shows",
 		Author:       "MuxCore",
@@ -127,7 +140,7 @@ func (m *Module) Init(ctx context.Context) error {
 		return fmt.Errorf("listen %s: %w", m.grpcAddr, err)
 	}
 	m.lis = lis
-	slog.Info("metadata-tmdb initialized", "addr", m.grpcAddr)
+	slog.Info("metadata-tmdb initialized", "addr", m.grpcAddr, "fixture", m.fixtureMode())
 	return nil
 }
 
@@ -154,8 +167,11 @@ func (m *Module) Stop(ctx context.Context) error {
 }
 
 func (m *Module) Health(ctx context.Context) error {
+	if m.fixtureMode() {
+		return nil
+	}
 	if m.apiKey == "" {
-		return fmt.Errorf("TMDB API key not configured — set TMDB_API_KEY or MUXCORE_CFG_TMDB_API_KEY")
+		return fmt.Errorf("TMDB API key not configured — set TMDB_API_KEY, MUXCORE_CFG_TMDB_API_KEY, or TMDB_FIXTURE=1")
 	}
 	return nil
 }
@@ -579,11 +595,14 @@ func (m *Module) ListPopular(ctx context.Context, req *metadatav1.ListPopularReq
 }
 
 func (m *Module) tmdbGet(ctx context.Context, endpoint string, params url.Values, dest any) error {
-	if m.apiKey == "" {
-		return fmt.Errorf("TMDB API key not configured")
-	}
 	if params == nil {
 		params = url.Values{}
+	}
+	if m.fixtureMode() {
+		return m.fixtureGet(endpoint, params, dest)
+	}
+	if m.apiKey == "" {
+		return fmt.Errorf("TMDB API key not configured")
 	}
 	key := cacheKey(endpoint, params)
 
