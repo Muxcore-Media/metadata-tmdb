@@ -830,6 +830,25 @@ func TestTMDBGetNoAPIKey(t *testing.T) {
 	}
 }
 
+func TestFixtureSearchMovie(t *testing.T) {
+	m := NewModule(Config{Fixture: true})
+	ctx := context.Background()
+	if err := m.Health(ctx); err != nil {
+		t.Fatalf("fixture Health: %v", err)
+	}
+	resp, err := m.Search(ctx, &metadatav1.SearchRequest{
+		Query: "Fight Club",
+		Type:  metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+		Year:  1999,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Id != 550 || resp.Results[0].Title != "Fight Club" {
+		t.Fatalf("unexpected fixture search: %+v", resp.Results)
+	}
+}
+
 func TestSearchDefaultMulti(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/3/search/multi" {
