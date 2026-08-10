@@ -117,7 +117,7 @@ func (m *Module) Info() contracts.ModuleInfo {
 	return contracts.ModuleInfo{
 		ID:           m.id,
 		Name:         "Metadata TMDB",
-		Version:      "0.1.1",
+		Version:        "0.1.4",
 		Roles:        []string{"metadata"},
 		Description:  "TMDB (The Movie Database) metadata provider for movies and TV shows",
 		Author:       "MuxCore",
