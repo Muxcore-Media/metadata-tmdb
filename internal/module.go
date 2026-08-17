@@ -692,36 +692,6 @@ func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Valu
 	}
 }
 
-// fixtureGet serves offline TMDB payloads when TMDB_FIXTURE=1 (MVP smoke / no API key).
-func (m *Module) fixtureGet(endpoint string, params url.Values, dest any) error {
-	q := strings.ToLower(strings.TrimSpace(params.Get("query")))
-	var body []byte
-	switch {
-	case endpoint == "/3/configuration":
-		body = []byte(`{"images":{"base_url":"https://image.tmdb.org/t/p/","secure_base_url":"https://image.tmdb.org/t/p/","poster_sizes":["w500"],"backdrop_sizes":["w1280"]}}`)
-	case endpoint == "/3/search/movie" && (strings.Contains(q, "fight club") || q == "fight" || strings.Contains(q, "fight")):
-		body = []byte(`{"page":1,"total_pages":1,"total_results":1,"results":[{"id":550,"title":"Fight Club","original_title":"Fight Club","overview":"An insomniac office worker","poster_path":"/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg","backdrop_path":"/fCayJrkfRaCRCTh8GqLQLDJhzsF.jpg","release_date":"1999-10-15","vote_average":8.4,"vote_count":26280,"popularity":60.0,"original_language":"en","genre_ids":[18],"media_type":"movie"}]}`)
-	case endpoint == "/3/search/tv" && (strings.Contains(q, "breaking bad") || strings.Contains(q, "breaking")):
-		body = []byte(`{"page":1,"total_pages":1,"total_results":1,"results":[{"id":1396,"name":"Breaking Bad","original_name":"Breaking Bad","overview":"A high school chemistry teacher","poster_path":"/ggFHVNu6YYIAjLDJJSFogDmnN0V.jpg","first_air_date":"2008-01-20","vote_average":8.9,"vote_count":12000,"popularity":80.0,"original_language":"en","genre_ids":[18],"media_type":"tv"}]}`)
-	case endpoint == "/3/search/multi" && strings.Contains(q, "fight"):
-		body = []byte(`{"page":1,"total_pages":1,"total_results":1,"results":[{"id":550,"title":"Fight Club","original_title":"Fight Club","overview":"An insomniac office worker","poster_path":"/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg","release_date":"1999-10-15","vote_average":8.4,"vote_count":26280,"popularity":60.0,"original_language":"en","genre_ids":[18],"media_type":"movie"}]}`)
-	case strings.HasPrefix(endpoint, "/3/movie/550"):
-		body = []byte(`{"id":550,"title":"Fight Club","original_title":"Fight Club","overview":"An insomniac office worker","poster_path":"/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg","backdrop_path":"/fCayJrkfRaCRCTh8GqLQLDJhzsF.jpg","release_date":"1999-10-15","runtime":139,"vote_average":8.4,"vote_count":26280,"popularity":60.0,"original_language":"en","genres":[{"id":18,"name":"Drama"}]}`)
-	case strings.HasPrefix(endpoint, "/3/tv/1396"):
-		body = []byte(`{"id":1396,"name":"Breaking Bad","original_name":"Breaking Bad","overview":"A high school chemistry teacher","poster_path":"/ggFHVNu6YYIAjLDJJSFogDmnN0V.jpg","first_air_date":"2008-01-20","vote_average":8.9,"vote_count":12000,"popularity":80.0,"original_language":"en","genres":[{"id":18,"name":"Drama"}]}`)
-	default:
-		// Empty search / unsupported endpoints: succeed with empty page so callers soft-fail.
-		if strings.Contains(endpoint, "/search/") || strings.Contains(endpoint, "/popular") || strings.Contains(endpoint, "/trending/") {
-			body = []byte(`{"page":1,"total_pages":0,"total_results":0,"results":[]}`)
-		} else {
-			return fmt.Errorf("TMDB fixture: unsupported endpoint %s (set a real TMDB_API_KEY)", endpoint)
-		}
-	}
-	if err := json.Unmarshal(body, dest); err != nil {
-		return fmt.Errorf("decode tmdb fixture: %w", err)
-	}
-	return nil
-}
 
 func cloneValues(v url.Values) url.Values {
 	out := make(url.Values, len(v))
