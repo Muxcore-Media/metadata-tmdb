@@ -818,6 +818,7 @@ type movieDetailRaw struct {
 	ProductionCos    []companyRaw   `json:"production_companies"`
 	SpokenLangs      []languageRaw  `json:"spoken_languages"`
 	BelongsTo        *collectionRaw `json:"belongs_to_collection"`
+	Videos           *videosAppendRaw `json:"videos"`
 }
 
 type genreRaw struct {
@@ -835,6 +836,18 @@ type companyRaw struct {
 type languageRaw struct {
 	ISO6391 string `json:"iso_639_1"`
 	Name    string `json:"name"`
+}
+
+type videosAppendRaw struct {
+	Results []videoRaw `json:"results"`
+}
+
+type videoRaw struct {
+	ID   string `json:"id"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	Site string `json:"site"`
+	Type string `json:"type"`
 }
 
 type collectionRaw struct {
@@ -887,6 +900,7 @@ func (r *movieDetailRaw) toProto(cfg *tmdbConfig) *metadatav1.GetMovieDetailsRes
 			PosterPath: r.BelongsTo.PosterPath, BackdropPath: r.BelongsTo.BackdropPath,
 		}
 	}
+	resp.Videos = mapVideos(r.Videos)
 	return resp
 }
 
@@ -916,6 +930,7 @@ type tvDetailRaw struct {
 	CreatedBy        []creatorRaw  `json:"created_by"`
 	Networks         []networkRaw  `json:"networks"`
 	OriginCountries  []string      `json:"origin_country"`
+	Videos           *videosAppendRaw `json:"videos"`
 }
 
 type seasonRaw struct {
@@ -1046,7 +1061,21 @@ func (r *tvDetailRaw) toProto(cfg *tmdbConfig) *metadatav1.GetTVDetailsResponse 
 	for _, n := range r.Networks {
 		resp.Networks = append(resp.Networks, &metadatav1.Network{Id: int32(n.ID), Name: n.Name, LogoPath: n.LogoPath, OriginCountry: n.OriginCountry})
 	}
+	resp.Videos = mapVideos(r.Videos)
 	return resp
+}
+
+func mapVideos(raw *videosAppendRaw) []*metadatav1.Video {
+	if raw == nil {
+		return nil
+	}
+	out := make([]*metadatav1.Video, 0, len(raw.Results))
+	for _, v := range raw.Results {
+		out = append(out, &metadatav1.Video{
+			Id: v.ID, Key: v.Key, Name: v.Name, Site: v.Site, Type: v.Type,
+		})
+	}
+	return out
 }
 
 var _ contracts.Module = (*Module)(nil)
