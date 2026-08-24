@@ -3,7 +3,6 @@ package internal
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -12,12 +11,6 @@ import (
 // Offline corpus for TMDB_FIXTURE / TMDB_API_KEY=fixture (laptop demo + unit tests).
 // Covers Fight Club (movie 550) and Breaking Bad (TV 1396) used by _mvp smoke.
 // No network is used while fixture mode is active.
-
-type fixtureTransport struct{}
-
-func (fixtureTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	return nil, fmt.Errorf("TMDB fixture mode: outbound HTTP disabled")
-}
 
 const (
 	fixtureConfigJSON = `{"images":{"base_url":"https://image.tmdb.org/t/p/","secure_base_url":"https://image.tmdb.org/t/p/","poster_sizes":["w92","w154","w185","w342","w500","w780","original"],"backdrop_sizes":["w300","w780","w1280","original"],"logo_sizes":["w45","w92","w154","w185","w300","w500","original"],"profile_sizes":["w45","w185","h632","original"],"still_sizes":["w92","w185","w300","original"]}}`
@@ -53,7 +46,7 @@ const (
 	fixturePopularTV = `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":1396,"name":"Breaking Bad","original_name":"Breaking Bad","overview":"A high school chemistry teacher diagnosed with inoperable lung cancer turns to manufacturing and selling methamphetamine in order to secure his family's future.","poster_path":"/ggFHVNu6YYI5L9W6QN5CvfWgmd.jpg","first_air_date":"2008-01-20","vote_average":8.918,"vote_count":12000,"popularity":280.0,"original_language":"en","genre_ids":[18,80],"media_type":"tv"}]}`
 
 	fixtureTrendingMovie = fixturePopularMovies
-	fixtureTrendingTV   = fixturePopularTV
+	fixtureTrendingTV    = fixturePopularTV
 )
 
 // fixtureGet serves offline TMDB payloads when TMDB_FIXTURE=1 (MVP smoke / no API key).
@@ -61,11 +54,11 @@ func (m *Module) fixtureGet(endpoint string, params url.Values, dest any) error 
 	q := strings.ToLower(strings.TrimSpace(params.Get("query")))
 	var body []byte
 
-	switch {
-	case endpoint == "/3/configuration":
+	switch endpoint {
+	case "/3/configuration":
 		body = []byte(fixtureConfigJSON)
 
-	case endpoint == "/3/search/movie":
+	case "/3/search/movie":
 		yearOK := fixtureYearOK(params.Get("primary_release_year"), "1999")
 		if yearOK && fixtureQueryMatch(q, "fight club", "fight") {
 			body = []byte(fixtureFightClubSearch)
@@ -73,7 +66,7 @@ func (m *Module) fixtureGet(endpoint string, params url.Values, dest any) error 
 			body = []byte(fixtureEmptyPage)
 		}
 
-	case endpoint == "/3/search/tv":
+	case "/3/search/tv":
 		yearOK := fixtureYearOK(params.Get("first_air_date_year"), "2008")
 		if yearOK && fixtureQueryMatch(q, "breaking bad", "breaking") {
 			body = []byte(fixtureBreakingBadSearch)
@@ -81,7 +74,7 @@ func (m *Module) fixtureGet(endpoint string, params url.Values, dest any) error 
 			body = []byte(fixtureEmptyPage)
 		}
 
-	case endpoint == "/3/search/multi":
+	case "/3/search/multi":
 		year := params.Get("year")
 		switch {
 		case fixtureQueryMatch(q, "fight club", "fight") && fixtureYearOK(year, "1999"):
@@ -92,30 +85,30 @@ func (m *Module) fixtureGet(endpoint string, params url.Values, dest any) error 
 			body = []byte(fixtureEmptyPage)
 		}
 
-	case endpoint == "/3/movie/550/alternative_titles":
+	case "/3/movie/550/alternative_titles":
 		body = []byte(fixtureFightClubAltTitles)
-	case endpoint == "/3/movie/550":
+	case "/3/movie/550":
 		body = []byte(fixtureFightClubMovie)
 
-	case endpoint == "/3/tv/1396/alternative_titles":
+	case "/3/tv/1396/alternative_titles":
 		body = []byte(fixtureBreakingBadAltTitles)
-	case endpoint == "/3/tv/1396/season/1":
+	case "/3/tv/1396/season/1":
 		body = []byte(fixtureBreakingBadSeason1)
-	case endpoint == "/3/tv/1396/season/2":
+	case "/3/tv/1396/season/2":
 		body = []byte(fixtureBreakingBadSeason2)
-	case endpoint == "/3/tv/1396":
+	case "/3/tv/1396":
 		body = []byte(fixtureBreakingBadTV)
 
-	case endpoint == "/3/find/tt0137523":
+	case "/3/find/tt0137523":
 		body = []byte(fixtureFindFightClub)
-	case endpoint == "/3/find/tt0903747":
+	case "/3/find/tt0903747":
 		body = []byte(fixtureFindBreakingBad)
 
-	case endpoint == "/3/movie/popular" || endpoint == "/3/trending/movie/day" || endpoint == "/3/trending/movie/week":
+	case "/3/movie/popular", "/3/trending/movie/day", "/3/trending/movie/week":
 		body = []byte(fixtureTrendingMovie)
-	case endpoint == "/3/tv/popular" || endpoint == "/3/trending/tv/day" || endpoint == "/3/trending/tv/week":
+	case "/3/tv/popular", "/3/trending/tv/day", "/3/trending/tv/week":
 		body = []byte(fixtureTrendingTV)
-	case endpoint == "/3/trending/all/day" || endpoint == "/3/trending/all/week":
+	case "/3/trending/all/day", "/3/trending/all/week":
 		body = []byte(fixtureMultiFightClub)
 
 	default:
