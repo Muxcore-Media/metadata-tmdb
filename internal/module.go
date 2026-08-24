@@ -19,8 +19,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/Muxcore-Media/core/pkg/contracts"
 	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
+	"github.com/Muxcore-Media/core/pkg/contracts"
 )
 
 type tmdbConfig struct {
@@ -551,7 +551,7 @@ func (m *Module) GetAlternativeTitles(ctx context.Context, req *metadatav1.GetAl
 }
 
 func (m *Module) ListPopular(ctx context.Context, req *metadatav1.ListPopularRequest) (*metadatav1.ListPopularResponse, error) {
-	endpoint := "/3/movie/popular"
+	var endpoint string
 	switch req.GetType() {
 	case metadatav1.MediaType_MEDIA_TYPE_TV:
 		endpoint = "/3/tv/popular"
@@ -648,11 +648,11 @@ func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Valu
 		if err != nil {
 			return nil, fmt.Errorf("tmdb request: %w", err)
 		}
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			retryAfterSec = parseRetryAfter(resp.Header.Get("Retry-After"))
 			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
 			if attempt >= 3 {
 				msg := fmt.Sprintf("rate_limit_exceeded: TMDB API rate limit reached. Retry in %d seconds.", retryAfterSec)
 				return nil, status.Error(codes.ResourceExhausted, msg)
@@ -675,7 +675,6 @@ func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Valu
 		}
 
 		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read tmdb response: %w", err)
 		}
@@ -691,7 +690,6 @@ func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Valu
 		return body, nil
 	}
 }
-
 
 func cloneValues(v url.Values) url.Values {
 	out := make(url.Values, len(v))
@@ -764,8 +762,8 @@ func (m *Module) parseSearchResult(raw json.RawMessage) *metadatav1.SearchResult
 		OriginalName string `json:"original_name"`
 		FirstAirDate string `json:"first_air_date"`
 	}
-	json.Unmarshal(raw, &movie)
-	json.Unmarshal(raw, &tv)
+	_ = json.Unmarshal(raw, &movie)
+	_ = json.Unmarshal(raw, &tv)
 
 	result := &metadatav1.SearchResult{
 		Id:               int32(base.ID),
@@ -795,29 +793,29 @@ func (m *Module) parseSearchResult(raw json.RawMessage) *metadatav1.SearchResult
 }
 
 type movieDetailRaw struct {
-	Adult            bool           `json:"adult"`
-	Budget           int64          `json:"budget"`
-	Homepage         string         `json:"homepage"`
-	ID               int            `json:"id"`
-	IMDBID           string         `json:"imdb_id"`
-	OriginalLanguage string         `json:"original_language"`
-	OriginalTitle    string         `json:"original_title"`
-	Overview         string         `json:"overview"`
-	Popularity       float64        `json:"popularity"`
-	PosterPath       string         `json:"poster_path"`
-	BackdropPath     string         `json:"backdrop_path"`
-	ReleaseDate      string         `json:"release_date"`
-	Revenue          int64          `json:"revenue"`
-	Runtime          int            `json:"runtime"`
-	Status           string         `json:"status"`
-	Tagline          string         `json:"tagline"`
-	Title            string         `json:"title"`
-	VoteAverage      float64        `json:"vote_average"`
-	VoteCount        int            `json:"vote_count"`
-	Genres           []genreRaw     `json:"genres"`
-	ProductionCos    []companyRaw   `json:"production_companies"`
-	SpokenLangs      []languageRaw  `json:"spoken_languages"`
-	BelongsTo        *collectionRaw `json:"belongs_to_collection"`
+	Adult            bool             `json:"adult"`
+	Budget           int64            `json:"budget"`
+	Homepage         string           `json:"homepage"`
+	ID               int              `json:"id"`
+	IMDBID           string           `json:"imdb_id"`
+	OriginalLanguage string           `json:"original_language"`
+	OriginalTitle    string           `json:"original_title"`
+	Overview         string           `json:"overview"`
+	Popularity       float64          `json:"popularity"`
+	PosterPath       string           `json:"poster_path"`
+	BackdropPath     string           `json:"backdrop_path"`
+	ReleaseDate      string           `json:"release_date"`
+	Revenue          int64            `json:"revenue"`
+	Runtime          int              `json:"runtime"`
+	Status           string           `json:"status"`
+	Tagline          string           `json:"tagline"`
+	Title            string           `json:"title"`
+	VoteAverage      float64          `json:"vote_average"`
+	VoteCount        int              `json:"vote_count"`
+	Genres           []genreRaw       `json:"genres"`
+	ProductionCos    []companyRaw     `json:"production_companies"`
+	SpokenLangs      []languageRaw    `json:"spoken_languages"`
+	BelongsTo        *collectionRaw   `json:"belongs_to_collection"`
 	Videos           *videosAppendRaw `json:"videos"`
 }
 
@@ -905,31 +903,31 @@ func (r *movieDetailRaw) toProto(cfg *tmdbConfig) *metadatav1.GetMovieDetailsRes
 }
 
 type tvDetailRaw struct {
-	ID               int           `json:"id"`
-	Name             string        `json:"name"`
-	OriginalName     string        `json:"original_name"`
-	Overview         string        `json:"overview"`
-	Tagline          string        `json:"tagline"`
-	PosterPath       string        `json:"poster_path"`
-	BackdropPath     string        `json:"backdrop_path"`
-	FirstAirDate     string        `json:"first_air_date"`
-	LastAirDate      string        `json:"last_air_date"`
-	NumSeasons       int           `json:"number_of_seasons"`
-	NumEpisodes      int           `json:"number_of_episodes"`
-	VoteAverage      float64       `json:"vote_average"`
-	VoteCount        int           `json:"vote_count"`
-	Popularity       float64       `json:"popularity"`
-	Status           string        `json:"status"`
-	OriginalLanguage string        `json:"original_language"`
-	Homepage         string        `json:"homepage"`
-	InProduction     bool          `json:"in_production"`
-	Genres           []genreRaw    `json:"genres"`
-	Seasons          []seasonRaw   `json:"seasons"`
-	ProductionCos    []companyRaw  `json:"production_companies"`
-	SpokenLangs      []languageRaw `json:"spoken_languages"`
-	CreatedBy        []creatorRaw  `json:"created_by"`
-	Networks         []networkRaw  `json:"networks"`
-	OriginCountries  []string      `json:"origin_country"`
+	ID               int              `json:"id"`
+	Name             string           `json:"name"`
+	OriginalName     string           `json:"original_name"`
+	Overview         string           `json:"overview"`
+	Tagline          string           `json:"tagline"`
+	PosterPath       string           `json:"poster_path"`
+	BackdropPath     string           `json:"backdrop_path"`
+	FirstAirDate     string           `json:"first_air_date"`
+	LastAirDate      string           `json:"last_air_date"`
+	NumSeasons       int              `json:"number_of_seasons"`
+	NumEpisodes      int              `json:"number_of_episodes"`
+	VoteAverage      float64          `json:"vote_average"`
+	VoteCount        int              `json:"vote_count"`
+	Popularity       float64          `json:"popularity"`
+	Status           string           `json:"status"`
+	OriginalLanguage string           `json:"original_language"`
+	Homepage         string           `json:"homepage"`
+	InProduction     bool             `json:"in_production"`
+	Genres           []genreRaw       `json:"genres"`
+	Seasons          []seasonRaw      `json:"seasons"`
+	ProductionCos    []companyRaw     `json:"production_companies"`
+	SpokenLangs      []languageRaw    `json:"spoken_languages"`
+	CreatedBy        []creatorRaw     `json:"created_by"`
+	Networks         []networkRaw     `json:"networks"`
+	OriginCountries  []string         `json:"origin_country"`
 	Videos           *videosAppendRaw `json:"videos"`
 }
 
