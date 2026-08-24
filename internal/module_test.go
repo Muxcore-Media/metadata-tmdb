@@ -23,7 +23,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/3/configuration":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"images": map[string]any{
 					"base_url":        "http://image.tmdb.org/t/p/",
 					"secure_base_url": "https://image.tmdb.org/t/p/",
@@ -36,7 +36,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 			})
 		case "/3/search/movie":
 			if r.URL.Query().Get("primary_release_year") == "1999" || r.URL.Query().Get("primary_release_year") == "" {
-				json.NewEncoder(w).Encode(map[string]any{
+				_ = json.NewEncoder(w).Encode(map[string]any{
 					"page": 1, "total_results": 1, "total_pages": 1,
 					"results": []map[string]any{
 						{
@@ -51,12 +51,12 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 					},
 				})
 			} else {
-				json.NewEncoder(w).Encode(map[string]any{
+				_ = json.NewEncoder(w).Encode(map[string]any{
 					"page": 1, "total_results": 0, "total_pages": 0, "results": []map[string]any{},
 				})
 			}
 		case "/3/search/tv":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"page": 1, "total_results": 1, "total_pages": 1,
 				"results": []map[string]any{
 					{
@@ -70,7 +70,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/movie/550/alternative_titles":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 550,
 				"titles": []map[string]any{
 					{"iso_3166_1": "US", "title": "Fight Club", "type": ""},
@@ -79,7 +79,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/tv/1396/alternative_titles":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 1396,
 				"results": []map[string]any{
 					{"iso_3166_1": "US", "title": "Breaking Bad", "type": ""},
@@ -87,7 +87,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/movie/550":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 550, "title": "Fight Club",
 				"original_title": "Fight Club",
 				"overview":       "A ticking-clock thriller.",
@@ -105,7 +105,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				"spoken_languages":     []map[string]any{{"iso_639_1": "en", "name": "English"}},
 			})
 		case "/3/collection/10":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 10, "name": "Star Wars Collection", "overview": "A long time ago...",
 				"poster_path": "/c.jpg", "backdrop_path": "/b.jpg",
 				"parts": []map[string]any{
@@ -113,7 +113,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/tv/1396":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 1396, "name": "Breaking Bad",
 				"original_name":      "Breaking Bad",
 				"overview":           "A high school chemistry teacher.",
@@ -129,7 +129,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/tv/1396/season/1":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 3572, "name": "Season 1", "overview": "Season one.",
 				"poster_path": "/poster.jpg", "air_date": "2008-01-20",
 				"season_number": 1, "vote_average": 8.2,
@@ -153,7 +153,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"movie_results": []map[string]any{
 					{
 						"id": 550, "title": "Fight Club",
@@ -167,7 +167,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				"tv_results": []map[string]any{},
 			})
 		case "/3/find/tt0903747":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"movie_results": []map[string]any{},
 				"tv_results": []map[string]any{
 					{
@@ -182,7 +182,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 			})
 		default:
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"status_message": "Not found"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"status_message": "Not found"})
 		}
 	}))
 
@@ -195,7 +195,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 	if err := m.Init(ctx); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	t.Cleanup(func() { m.Stop(ctx) })
+	t.Cleanup(func() { _ = m.Stop(ctx) })
 
 	return srv, m
 }
@@ -852,7 +852,7 @@ func TestFixtureSearchMovie(t *testing.T) {
 func TestSearchDefaultMulti(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/3/search/multi" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"page": 1, "total_results": 1, "total_pages": 1,
 				"results": []map[string]any{
 					{"id": 1, "title": "Multi", "media_type": "movie"},
@@ -882,12 +882,14 @@ func TestSearchDefaultMulti(t *testing.T) {
 func TestMovieDetailsNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"status_message": "Not found"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status_message": "Not found"})
 	}))
 	defer srv.Close()
 
 	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
-	m.Init(context.Background())
+	if err := m.Init(context.Background()); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	ctx := context.Background()
 
 	_, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{TmdbId: 99999})
@@ -917,7 +919,7 @@ func TestGetMovieDetailsWithLanguage(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": 550, "title": "Fight Club",
 			"original_title": "Fight Club",
 			"overview":       "Version française",
@@ -945,7 +947,7 @@ func TestConfigurationCaching(t *testing.T) {
 	fetchCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount++
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"images": map[string]any{
 				"base_url":        "http://image.tmdb.org/t/p/",
 				"secure_base_url": "https://image.tmdb.org/t/p/",
@@ -984,11 +986,7 @@ func TestConfigurationCaching(t *testing.T) {
 
 func TestSearchZeroPageDefaults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		page := r.URL.Query().Get("page")
-		if page == "" || page == "0" {
-			page = "1"
-		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"page": 1, "total_results": 0, "total_pages": 0,
 			"results": []map[string]any{},
 		})
@@ -1010,7 +1008,7 @@ func TestSearchZeroPageDefaults(t *testing.T) {
 
 func TestEmptySearchResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"page": 1, "total_results": 0, "total_pages": 0,
 			"results": []map[string]any{},
 		})
@@ -1116,7 +1114,7 @@ func TestResponseCacheHit(t *testing.T) {
 	fetchCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount++
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"page": 1, "total_results": 1, "total_pages": 1,
 			"results": []map[string]any{
 				{"id": 1, "title": "Cached", "media_type": "movie"},
@@ -1144,7 +1142,7 @@ func TestResponseCacheTTLExpiry(t *testing.T) {
 	fetchCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount++
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"page": 1, "total_results": 0, "total_pages": 0,
 			"results": []map[string]any{},
 		})
@@ -1177,7 +1175,7 @@ func TestInflightCoalesce(t *testing.T) {
 		fetchCount.Add(1)
 		startOnce.Do(func() { close(started) })
 		<-release
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"page": 1, "total_results": 0, "total_pages": 0,
 			"results": []map[string]any{},
 		})
@@ -1214,7 +1212,7 @@ func TestTMDB429RetryThenSuccess(t *testing.T) {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"page": 1, "total_results": 0, "total_pages": 0,
 			"results": []map[string]any{},
 		})
