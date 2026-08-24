@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
+	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, *Module) {
