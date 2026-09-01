@@ -134,6 +134,15 @@ func (c *httpCache) set(key string, body []byte, ttl time.Duration) {
 	}
 }
 
+func (c *httpCache) clear() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries = make(map[string]cacheEntry)
+}
+
 func (c *httpCache) evictOldestLocked() {
 	var oldestKey string
 	var oldestTime time.Time

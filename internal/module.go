@@ -110,6 +110,8 @@ func NewModule(cfg Config) *Module {
 }
 
 func (m *Module) fixtureMode() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.fixture || strings.EqualFold(m.apiKey, "fixture")
 }
 
@@ -167,18 +169,32 @@ func (m *Module) Stop(ctx context.Context) error {
 }
 
 func (m *Module) Health(ctx context.Context) error {
-	if m.fixtureMode() {
+	m.mu.RLock()
+	fixture := m.fixture || strings.EqualFold(m.apiKey, "fixture")
+	apiKey := m.apiKey
+	m.mu.RUnlock()
+
+	if fixture {
 		return nil
 	}
-	if m.apiKey == "" {
+	if apiKey == "" {
 		return fmt.Errorf("TMDB API key not configured — set TMDB_API_KEY, MUXCORE_CFG_TMDB_API_KEY, or TMDB_FIXTURE=1")
+	}
+	if _, err := m.getConfig(ctx); err != nil {
+		return fmt.Errorf("tmdb health check failed: %w", err)
 	}
 	return nil
 }
 
 func (m *Module) Search(ctx context.Context, req *metadatav1.SearchRequest) (*metadatav1.SearchResponse, error) {
+	query := strings.TrimSpace(req.GetQuery())
+	if query == "" {
+		return nil, status.Error(codes.InvalidArgument, "query required")
+	}
+
 	params := url.Values{}
-	params.Set("query", req.GetQuery())
+	params.Set("query", query)
+	params.Set("include_adult", "false")
 	params.Set("page", strconv.Itoa(int(req.GetPage())))
 	if req.GetPage() <= 0 {
 		params.Set("page", "1")
@@ -233,7 +249,10 @@ func (m *Module) Search(ctx context.Context, req *metadatav1.SearchRequest) (*me
 }
 
 func (m *Module) GetMovieDetails(ctx context.Context, req *metadatav1.GetMovieDetailsRequest) (*metadatav1.GetMovieDetailsResponse, error) {
-	id := req.GetTmdbId()
+	id := req.GetId()
+	if id == 0 {
+		return nil, status.Error(codes.InvalidArgument, "tmdb_id required")
+	}
 	endpoint := fmt.Sprintf("/3/movie/%d", id)
 
 	params := url.Values{}
@@ -254,7 +273,10 @@ func (m *Module) GetMovieDetails(ctx context.Context, req *metadatav1.GetMovieDe
 }
 
 func (m *Module) GetTVDetails(ctx context.Context, req *metadatav1.GetTVDetailsRequest) (*metadatav1.GetTVDetailsResponse, error) {
-	id := req.GetTmdbId()
+	id := req.GetId()
+	if id == 0 {
+		return nil, status.Error(codes.InvalidArgument, "tmdb_id required")
+	}
 	endpoint := fmt.Sprintf("/3/tv/%d", id)
 
 	params := url.Values{}
@@ -275,7 +297,10 @@ func (m *Module) GetTVDetails(ctx context.Context, req *metadatav1.GetTVDetailsR
 }
 
 func (m *Module) GetSeasonDetails(ctx context.Context, req *metadatav1.GetSeasonDetailsRequest) (*metadatav1.GetSeasonDetailsResponse, error) {
-	id := req.GetTmdbId()
+	id := req.GetId()
+	if id == 0 {
+		return nil, status.Error(codes.InvalidArgument, "tmdb_id required")
+	}
 	season := req.GetSeasonNumber()
 	endpoint := fmt.Sprintf("/3/tv/%d/season/%d", id, season)
 
@@ -293,9 +318,9 @@ func (m *Module) GetSeasonDetails(ctx context.Context, req *metadatav1.GetSeason
 }
 
 func (m *Module) GetCollection(ctx context.Context, req *metadatav1.GetCollectionRequest) (*metadatav1.GetCollectionResponse, error) {
-	id := req.GetTmdbId()
+	id := req.GetId()
 	if id == 0 {
-		return nil, fmt.Errorf("tmdb_id required")
+		return nil, status.Error(codes.InvalidArgument, "tmdb_id required")
 	}
 	endpoint := fmt.Sprintf("/3/collection/%d", id)
 	params := url.Values{}
@@ -475,9 +500,9 @@ func (m *Module) FindByExternalID(ctx context.Context, req *metadatav1.FindByExt
 }
 
 func (m *Module) GetAlternativeTitles(ctx context.Context, req *metadatav1.GetAlternativeTitlesRequest) (*metadatav1.GetAlternativeTitlesResponse, error) {
-	id := req.GetTmdbId()
+	id := req.GetId()
 	if id == 0 {
-		return nil, fmt.Errorf("tmdb_id required")
+		return nil, status.Error(codes.InvalidArgument, "tmdb_id required")
 	}
 
 	var endpoint string
@@ -545,7 +570,7 @@ func (m *Module) GetAlternativeTitles(ctx context.Context, req *metadatav1.GetAl
 	}
 
 	return &metadatav1.GetAlternativeTitlesResponse{
-		TmdbId: id,
+		Id:     id,
 		Titles: out,
 	}, nil
 }
@@ -598,10 +623,17 @@ func (m *Module) tmdbGet(ctx context.Context, endpoint string, params url.Values
 	if params == nil {
 		params = url.Values{}
 	}
-	if m.fixtureMode() {
+
+	m.mu.RLock()
+	fixture := m.fixture || strings.EqualFold(m.apiKey, "fixture")
+	apiKey := m.apiKey
+	baseURL := m.baseURL
+	m.mu.RUnlock()
+
+	if fixture {
 		return m.fixtureGet(endpoint, params, dest)
 	}
-	if m.apiKey == "" {
+	if apiKey == "" {
 		return fmt.Errorf("TMDB API key not configured")
 	}
 	key := cacheKey(endpoint, params)
@@ -617,7 +649,7 @@ func (m *Module) tmdbGet(ctx context.Context, endpoint string, params url.Values
 		if cached, ok := m.cache.get(key); ok {
 			return cached, nil
 		}
-		return m.tmdbFetch(ctx, endpoint, params, key)
+		return m.tmdbFetch(ctx, endpoint, params, key, apiKey, baseURL)
 	})
 	if err != nil {
 		return err
@@ -628,10 +660,10 @@ func (m *Module) tmdbGet(ctx context.Context, endpoint string, params url.Values
 	return nil
 }
 
-func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Values, key string) ([]byte, error) {
+func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Values, key, apiKey, baseURL string) ([]byte, error) {
 	q := cloneValues(params)
-	q.Set("api_key", m.apiKey)
-	u := m.baseURL + endpoint + "?" + q.Encode()
+	q.Set("api_key", apiKey)
+	u := baseURL + endpoint + "?" + q.Encode()
 
 	var retryAfterSec int
 	for attempt := 0; ; attempt++ {
@@ -648,11 +680,11 @@ func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Valu
 		if err != nil {
 			return nil, fmt.Errorf("tmdb request: %w", err)
 		}
-		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			retryAfterSec = parseRetryAfter(resp.Header.Get("Retry-After"))
 			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 			if attempt >= 3 {
 				msg := fmt.Sprintf("rate_limit_exceeded: TMDB API rate limit reached. Retry in %d seconds.", retryAfterSec)
 				return nil, status.Error(codes.ResourceExhausted, msg)
@@ -675,12 +707,16 @@ func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Valu
 		}
 
 		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read tmdb response: %w", err)
 		}
 
 		if resp.StatusCode == http.StatusNotFound {
 			return nil, status.Error(codes.NotFound, "tmdb returned 404 Not Found")
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, status.Error(codes.Unauthenticated, "tmdb API key invalid or unauthorized")
 		}
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("tmdb returned %s", resp.Status)
@@ -729,6 +765,10 @@ func (m *Module) getCachedConfig() *tmdbConfig {
 }
 
 func (m *Module) imageURL(path string, cfg *tmdbConfig) string {
+	return buildImageURL(path, cfg)
+}
+
+func buildImageURL(path string, cfg *tmdbConfig) string {
 	if path == "" || cfg == nil {
 		return ""
 	}
@@ -747,8 +787,22 @@ func (m *Module) parseSearchResult(raw json.RawMessage) *metadatav1.SearchResult
 		OriginalLanguage string  `json:"original_language"`
 		GenreIDs         []int32 `json:"genre_ids"`
 		MediaType        string  `json:"media_type"`
+		Adult            bool    `json:"adult"`
 	}
 	if err := json.Unmarshal(raw, &base); err != nil {
+		return nil
+	}
+
+	if base.Adult {
+		return nil
+	}
+
+	switch base.MediaType {
+	case "person", "tv_episode", "tv_season":
+		return nil
+	case "movie", "tv", "":
+		// keep — typed search endpoints omit media_type
+	default:
 		return nil
 	}
 
@@ -793,30 +847,31 @@ func (m *Module) parseSearchResult(raw json.RawMessage) *metadatav1.SearchResult
 }
 
 type movieDetailRaw struct {
-	Adult            bool             `json:"adult"`
-	Budget           int64            `json:"budget"`
-	Homepage         string           `json:"homepage"`
-	ID               int              `json:"id"`
-	IMDBID           string           `json:"imdb_id"`
-	OriginalLanguage string           `json:"original_language"`
-	OriginalTitle    string           `json:"original_title"`
-	Overview         string           `json:"overview"`
-	Popularity       float64          `json:"popularity"`
-	PosterPath       string           `json:"poster_path"`
-	BackdropPath     string           `json:"backdrop_path"`
-	ReleaseDate      string           `json:"release_date"`
-	Revenue          int64            `json:"revenue"`
-	Runtime          int              `json:"runtime"`
-	Status           string           `json:"status"`
-	Tagline          string           `json:"tagline"`
-	Title            string           `json:"title"`
-	VoteAverage      float64          `json:"vote_average"`
-	VoteCount        int              `json:"vote_count"`
-	Genres           []genreRaw       `json:"genres"`
-	ProductionCos    []companyRaw     `json:"production_companies"`
-	SpokenLangs      []languageRaw    `json:"spoken_languages"`
-	BelongsTo        *collectionRaw   `json:"belongs_to_collection"`
-	Videos           *videosAppendRaw `json:"videos"`
+	Adult            bool              `json:"adult"`
+	Budget           int64             `json:"budget"`
+	Homepage         string            `json:"homepage"`
+	ID               int               `json:"id"`
+	IMDBID           string            `json:"imdb_id"`
+	OriginalLanguage string            `json:"original_language"`
+	OriginalTitle    string            `json:"original_title"`
+	Overview         string            `json:"overview"`
+	Popularity       float64           `json:"popularity"`
+	PosterPath       string            `json:"poster_path"`
+	BackdropPath     string            `json:"backdrop_path"`
+	ReleaseDate      string            `json:"release_date"`
+	Revenue          int64             `json:"revenue"`
+	Runtime          int               `json:"runtime"`
+	Status           string            `json:"status"`
+	Tagline          string            `json:"tagline"`
+	Title            string            `json:"title"`
+	VoteAverage      float64           `json:"vote_average"`
+	VoteCount        int               `json:"vote_count"`
+	Genres           []genreRaw        `json:"genres"`
+	ProductionCos    []companyRaw      `json:"production_companies"`
+	SpokenLangs      []languageRaw     `json:"spoken_languages"`
+	BelongsTo        *collectionRaw    `json:"belongs_to_collection"`
+	Videos           *videosAppendRaw  `json:"videos"`
+	Credits          *creditsAppendRaw `json:"credits"`
 }
 
 type genreRaw struct {
@@ -846,6 +901,27 @@ type videoRaw struct {
 	Name string `json:"name"`
 	Site string `json:"site"`
 	Type string `json:"type"`
+}
+
+type creditsAppendRaw struct {
+	Cast []castRaw `json:"cast"`
+	Crew []crewRaw `json:"crew"`
+}
+
+type castRaw struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Character   string `json:"character"`
+	ProfilePath string `json:"profile_path"`
+	Order       int    `json:"order"`
+}
+
+type crewRaw struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Job         string `json:"job"`
+	Department  string `json:"department"`
+	ProfilePath string `json:"profile_path"`
 }
 
 type collectionRaw struct {
@@ -878,8 +954,8 @@ func (r *movieDetailRaw) toProto(cfg *tmdbConfig) *metadatav1.GetMovieDetailsRes
 		ImdbId:           r.IMDBID,
 	}
 	if cfg != nil {
-		resp.PosterUrl = cfg.Images.SecureBaseURL + "original" + r.PosterPath
-		resp.BackdropUrl = cfg.Images.SecureBaseURL + "original" + r.BackdropPath
+		resp.PosterUrl = buildImageURL(r.PosterPath, cfg)
+		resp.BackdropUrl = buildImageURL(r.BackdropPath, cfg)
 	}
 	for _, g := range r.Genres {
 		resp.Genres = append(resp.Genres, &metadatav1.Genre{Id: int32(g.ID), Name: g.Name})
@@ -899,36 +975,38 @@ func (r *movieDetailRaw) toProto(cfg *tmdbConfig) *metadatav1.GetMovieDetailsRes
 		}
 	}
 	resp.Videos = mapVideos(r.Videos)
+	resp.Credits = mapCredits(r.Credits)
 	return resp
 }
 
 type tvDetailRaw struct {
-	ID               int              `json:"id"`
-	Name             string           `json:"name"`
-	OriginalName     string           `json:"original_name"`
-	Overview         string           `json:"overview"`
-	Tagline          string           `json:"tagline"`
-	PosterPath       string           `json:"poster_path"`
-	BackdropPath     string           `json:"backdrop_path"`
-	FirstAirDate     string           `json:"first_air_date"`
-	LastAirDate      string           `json:"last_air_date"`
-	NumSeasons       int              `json:"number_of_seasons"`
-	NumEpisodes      int              `json:"number_of_episodes"`
-	VoteAverage      float64          `json:"vote_average"`
-	VoteCount        int              `json:"vote_count"`
-	Popularity       float64          `json:"popularity"`
-	Status           string           `json:"status"`
-	OriginalLanguage string           `json:"original_language"`
-	Homepage         string           `json:"homepage"`
-	InProduction     bool             `json:"in_production"`
-	Genres           []genreRaw       `json:"genres"`
-	Seasons          []seasonRaw      `json:"seasons"`
-	ProductionCos    []companyRaw     `json:"production_companies"`
-	SpokenLangs      []languageRaw    `json:"spoken_languages"`
-	CreatedBy        []creatorRaw     `json:"created_by"`
-	Networks         []networkRaw     `json:"networks"`
-	OriginCountries  []string         `json:"origin_country"`
-	Videos           *videosAppendRaw `json:"videos"`
+	ID               int               `json:"id"`
+	Name             string            `json:"name"`
+	OriginalName     string            `json:"original_name"`
+	Overview         string            `json:"overview"`
+	Tagline          string            `json:"tagline"`
+	PosterPath       string            `json:"poster_path"`
+	BackdropPath     string            `json:"backdrop_path"`
+	FirstAirDate     string            `json:"first_air_date"`
+	LastAirDate      string            `json:"last_air_date"`
+	NumSeasons       int               `json:"number_of_seasons"`
+	NumEpisodes      int               `json:"number_of_episodes"`
+	VoteAverage      float64           `json:"vote_average"`
+	VoteCount        int               `json:"vote_count"`
+	Popularity       float64           `json:"popularity"`
+	Status           string            `json:"status"`
+	OriginalLanguage string            `json:"original_language"`
+	Homepage         string            `json:"homepage"`
+	InProduction     bool              `json:"in_production"`
+	Genres           []genreRaw        `json:"genres"`
+	Seasons          []seasonRaw       `json:"seasons"`
+	ProductionCos    []companyRaw      `json:"production_companies"`
+	SpokenLangs      []languageRaw     `json:"spoken_languages"`
+	CreatedBy        []creatorRaw      `json:"created_by"`
+	Networks         []networkRaw      `json:"networks"`
+	OriginCountries  []string          `json:"origin_country"`
+	Videos           *videosAppendRaw  `json:"videos"`
+	Credits          *creditsAppendRaw `json:"credits"`
 }
 
 type seasonRaw struct {
@@ -1027,12 +1105,12 @@ func (r *tvDetailRaw) toProto(cfg *tmdbConfig) *metadatav1.GetTVDetailsResponse 
 		Status:           r.Status,
 		OriginalLanguage: r.OriginalLanguage,
 		Homepage:         r.Homepage,
-		InProduction:     strconv.FormatBool(r.InProduction),
+		InProduction:     r.InProduction,
 		OriginCountry:    r.OriginCountries,
 	}
 	if cfg != nil {
-		resp.PosterUrl = cfg.Images.SecureBaseURL + "original" + r.PosterPath
-		resp.BackdropUrl = cfg.Images.SecureBaseURL + "original" + r.BackdropPath
+		resp.PosterUrl = buildImageURL(r.PosterPath, cfg)
+		resp.BackdropUrl = buildImageURL(r.BackdropPath, cfg)
 	}
 	for _, g := range r.Genres {
 		resp.Genres = append(resp.Genres, &metadatav1.Genre{Id: int32(g.ID), Name: g.Name})
@@ -1060,6 +1138,7 @@ func (r *tvDetailRaw) toProto(cfg *tmdbConfig) *metadatav1.GetTVDetailsResponse 
 		resp.Networks = append(resp.Networks, &metadatav1.Network{Id: int32(n.ID), Name: n.Name, LogoPath: n.LogoPath, OriginCountry: n.OriginCountry})
 	}
 	resp.Videos = mapVideos(r.Videos)
+	resp.Credits = mapCredits(r.Credits)
 	return resp
 }
 
@@ -1074,6 +1153,26 @@ func mapVideos(raw *videosAppendRaw) []*metadatav1.Video {
 		})
 	}
 	return out
+}
+
+func mapCredits(raw *creditsAppendRaw) []*metadatav1.Credits {
+	if raw == nil || (len(raw.Cast) == 0 && len(raw.Crew) == 0) {
+		return nil
+	}
+	c := &metadatav1.Credits{}
+	for _, m := range raw.Cast {
+		c.Cast = append(c.Cast, &metadatav1.CastMember{
+			Id: int32(m.ID), Name: m.Name, Character: m.Character,
+			ProfilePath: m.ProfilePath, Order: int32(m.Order),
+		})
+	}
+	for _, m := range raw.Crew {
+		c.Crew = append(c.Crew, &metadatav1.CrewMember{
+			Id: int32(m.ID), Name: m.Name, Job: m.Job,
+			Department: m.Department, ProfilePath: m.ProfilePath,
+		})
+	}
+	return []*metadatav1.Credits{c}
 }
 
 var _ contracts.Module = (*Module)(nil)

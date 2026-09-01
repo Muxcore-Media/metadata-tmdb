@@ -87,7 +87,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/movie/550":
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			payload := map[string]any{
 				"id": 550, "title": "Fight Club",
 				"original_title": "Fight Club",
 				"overview":       "A ticking-clock thriller.",
@@ -103,7 +103,25 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				"genres":               []map[string]any{{"id": 18, "name": "Drama"}, {"id": 53, "name": "Thriller"}},
 				"production_companies": []map[string]any{{"id": 508, "name": "20th Century Fox", "origin_country": "US"}},
 				"spoken_languages":     []map[string]any{{"iso_639_1": "en", "name": "English"}},
-			})
+			}
+			if strings.Contains(r.URL.Query().Get("append_to_response"), "videos") {
+				payload["videos"] = map[string]any{
+					"results": []map[string]any{
+						{"id": "v1", "key": "SUXWAEX2jlg", "name": "Trailer", "site": "YouTube", "type": "Trailer"},
+					},
+				}
+			}
+			if strings.Contains(r.URL.Query().Get("append_to_response"), "credits") {
+				payload["credits"] = map[string]any{
+					"cast": []map[string]any{
+						{"id": 287, "name": "Brad Pitt", "character": "Tyler Durden", "profile_path": "/bp.jpg", "order": 1},
+					},
+					"crew": []map[string]any{
+						{"id": 7467, "name": "David Fincher", "job": "Director", "department": "Directing", "profile_path": "/df.jpg"},
+					},
+				}
+			}
+			_ = json.NewEncoder(w).Encode(payload)
 		case "/3/collection/10":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 10, "name": "Star Wars Collection", "overview": "A long time ago...",
@@ -113,7 +131,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				},
 			})
 		case "/3/tv/1396":
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			payload := map[string]any{
 				"id": 1396, "name": "Breaking Bad",
 				"original_name":      "Breaking Bad",
 				"overview":           "A high school chemistry teacher.",
@@ -127,7 +145,15 @@ func newTestServer(t *testing.T) (*httptest.Server, *Module) {
 				"seasons": []map[string]any{
 					{"id": 1, "name": "Season 1", "season_number": 1, "episode_count": 7, "air_date": "2008-01-20"},
 				},
-			})
+			}
+			if strings.Contains(r.URL.Query().Get("append_to_response"), "videos") {
+				payload["videos"] = map[string]any{
+					"results": []map[string]any{
+						{"id": "v2", "key": "HhesaQXLuRY", "name": "Trailer", "site": "YouTube", "type": "Trailer"},
+					},
+				}
+			}
+			_ = json.NewEncoder(w).Encode(payload)
 		case "/3/tv/1396/season/1":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 3572, "name": "Season 1", "overview": "Season one.",
@@ -296,14 +322,14 @@ func TestGetAlternativeTitlesMovie(t *testing.T) {
 	ctx := context.Background()
 
 	resp, err := m.GetAlternativeTitles(ctx, &metadatav1.GetAlternativeTitlesRequest{
-		TmdbId: 550,
-		Type:   metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+		Id:   550,
+		Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.TmdbId != 550 {
-		t.Errorf("tmdb_id: %d", resp.TmdbId)
+	if resp.Id != 550 {
+		t.Errorf("tmdb_id: %d", resp.Id)
 	}
 	if len(resp.Titles) < 2 {
 		t.Fatalf("expected deduped alts, got %d", len(resp.Titles))
@@ -325,8 +351,8 @@ func TestGetAlternativeTitlesTV(t *testing.T) {
 	ctx := context.Background()
 
 	resp, err := m.GetAlternativeTitles(ctx, &metadatav1.GetAlternativeTitlesRequest{
-		TmdbId: 1396,
-		Type:   metadatav1.MediaType_MEDIA_TYPE_TV,
+		Id:   1396,
+		Type: metadatav1.MediaType_MEDIA_TYPE_TV,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -345,7 +371,7 @@ func TestGetMovieDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{TmdbId: 550})
+	resp, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{Id: 550})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +400,7 @@ func TestGetCollection(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 
-	resp, err := m.GetCollection(ctx, &metadatav1.GetCollectionRequest{TmdbId: 10})
+	resp, err := m.GetCollection(ctx, &metadatav1.GetCollectionRequest{Id: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +421,7 @@ func TestGetTVDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := m.GetTVDetails(ctx, &metadatav1.GetTVDetailsRequest{TmdbId: 1396})
+	resp, err := m.GetTVDetails(ctx, &metadatav1.GetTVDetailsRequest{Id: 1396})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +445,7 @@ func TestGetSeasonDetails(t *testing.T) {
 	ctx := context.Background()
 
 	resp, err := m.GetSeasonDetails(ctx, &metadatav1.GetSeasonDetailsRequest{
-		TmdbId:       1396,
+		Id:           1396,
 		SeasonNumber: 1,
 	})
 	if err != nil {
@@ -481,10 +507,21 @@ func TestHealthNoAPIKey(t *testing.T) {
 }
 
 func TestHealthWithAPIKey(t *testing.T) {
-	m := NewModule(Config{APIKey: "test-key"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/3/configuration" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"images": map[string]any{"secure_base_url": "https://image.tmdb.org/t/p/"},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{APIKey: "test-key", BaseURL: srv.URL})
 	ctx := context.Background()
 	if err := m.Health(ctx); err != nil {
-		t.Errorf("expected health ok with API key, got %v", err)
+		t.Errorf("expected health ok with valid key, got %v", err)
 	}
 }
 
@@ -643,6 +680,27 @@ func TestMovieDetailRawToProtoNoCfg(t *testing.T) {
 	}
 }
 
+func TestMovieDetailRawToProtoEmptyPosterPath(t *testing.T) {
+	cfg := &tmdbConfig{
+		Images: struct {
+			BaseURL       string   `json:"base_url"`
+			SecureBaseURL string   `json:"secure_base_url"`
+			PosterSizes   []string `json:"poster_sizes"`
+			BackdropSizes []string `json:"backdrop_sizes"`
+			LogoSizes     []string `json:"logo_sizes"`
+			ProfileSizes  []string `json:"profile_sizes"`
+			StillSizes    []string `json:"still_sizes"`
+		}{
+			SecureBaseURL: "https://image.tmdb.org/t/p/",
+		},
+	}
+	raw := movieDetailRaw{ID: 1, Title: "Test"}
+	p := raw.toProto(cfg)
+	if p.PosterUrl != "" || p.BackdropUrl != "" {
+		t.Errorf("expected empty image URLs for empty paths, got poster=%q backdrop=%q", p.PosterUrl, p.BackdropUrl)
+	}
+}
+
 func TestTVDetailRawToProto(t *testing.T) {
 	raw := tvDetailRaw{
 		ID: 1668, Name: "Breaking Bad", OriginalName: "Breaking Bad",
@@ -717,8 +775,8 @@ func TestTVDetailRawToProto(t *testing.T) {
 	if p.PosterUrl == "" {
 		t.Error("expected poster URL with cfg")
 	}
-	if p.InProduction != "false" {
-		t.Errorf("InProduction = %q, want 'false'", p.InProduction)
+	if p.InProduction != false {
+		t.Errorf("InProduction = %v, want false", p.InProduction)
 	}
 }
 
@@ -818,6 +876,30 @@ func TestParseSearchResultNoMediaType(t *testing.T) {
 	}
 }
 
+func TestParseSearchResultFiltersPerson(t *testing.T) {
+	m := NewModule(Config{})
+	raw := json.RawMessage(`{
+		"id": 31, "name": "Tom Hanks",
+		"media_type": "person",
+		"popularity": 10.0
+	}`)
+	if r := m.parseSearchResult(raw); r != nil {
+		t.Fatalf("expected nil for person, got %+v", r)
+	}
+}
+
+func TestParseSearchResultFiltersAdult(t *testing.T) {
+	m := NewModule(Config{})
+	raw := json.RawMessage(`{
+		"id": 99, "title": "Adult Title",
+		"media_type": "movie",
+		"adult": true
+	}`)
+	if r := m.parseSearchResult(raw); r != nil {
+		t.Fatalf("expected nil for adult title, got %+v", r)
+	}
+}
+
 // ── Edge cases ─────────────────────────────────────────────
 
 func TestTMDBGetNoAPIKey(t *testing.T) {
@@ -852,10 +934,15 @@ func TestFixtureSearchMovie(t *testing.T) {
 func TestSearchDefaultMulti(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/3/search/multi" {
+			if r.URL.Query().Get("include_adult") != "false" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"page": 1, "total_results": 1, "total_pages": 1,
+				"page": 1, "total_results": 2, "total_pages": 1,
 				"results": []map[string]any{
 					{"id": 1, "title": "Multi", "media_type": "movie"},
+					{"id": 31, "name": "Tom Hanks", "media_type": "person"},
 				},
 			})
 		} else {
@@ -872,7 +959,7 @@ func TestSearchDefaultMulti(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(resp.Results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(resp.Results))
+		t.Fatalf("expected 1 result (person filtered), got %d", len(resp.Results))
 	}
 	if resp.Results[0].Title != "Multi" {
 		t.Errorf("expected 'Multi', got %s", resp.Results[0].Title)
@@ -892,7 +979,7 @@ func TestMovieDetailsNotFound(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	_, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{TmdbId: 99999})
+	_, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{Id: 99999})
 	if err == nil {
 		t.Fatal("expected error for not found movie")
 	}
@@ -932,7 +1019,7 @@ func TestGetMovieDetailsWithLanguage(t *testing.T) {
 	ctx := context.Background()
 
 	resp, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{
-		TmdbId:   550,
+		Id:       550,
 		Language: "fr",
 	})
 	if err != nil {
@@ -1313,5 +1400,269 @@ func TestTTLForEndpoints(t *testing.T) {
 		if got := c.ttlFor(tc.endpoint); got != tc.want {
 			t.Errorf("ttlFor(%s) = %v, want %v", tc.endpoint, got, tc.want)
 		}
+	}
+}
+
+func TestListTrending(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/3/trending/movie/week" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"page": 1, "total_results": 1, "total_pages": 1,
+			"results": []map[string]any{
+				{"id": 550, "title": "Fight Club", "media_type": "movie"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
+	ctx := context.Background()
+	resp, err := m.ListTrending(ctx, &metadatav1.ListTrendingRequest{
+		MediaType:  metadatav1.TrendingMediaType_TRENDING_MEDIA_TYPE_MOVIE,
+		TimeWindow: metadatav1.TrendingTimeWindow_TRENDING_TIME_WINDOW_WEEK,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Title != "Fight Club" {
+		t.Fatalf("unexpected trending: %+v", resp.Results)
+	}
+}
+
+func TestListPopular(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/3/movie/popular" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"page": 1, "total_results": 1, "total_pages": 1,
+			"results": []map[string]any{
+				{"id": 550, "title": "Fight Club", "media_type": "movie"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key"})
+	resp, err := m.ListPopular(context.Background(), &metadatav1.ListPopularRequest{
+		Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("expected 1 popular result, got %d", len(resp.Results))
+	}
+}
+
+func TestUpdateSetting(t *testing.T) {
+	m := NewModule(Config{APIKey: "old", BaseURL: "https://api.example.test"})
+	if err := m.updateSetting("api_key", "new-key"); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.RLock()
+	got := m.apiKey
+	m.mu.RUnlock()
+	if got != "new-key" {
+		t.Errorf("api_key = %q, want new-key", got)
+	}
+	if err := m.updateSetting("api_key", "********"); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.RLock()
+	got = m.apiKey
+	m.mu.RUnlock()
+	if got != "new-key" {
+		t.Errorf("masked update changed key to %q", got)
+	}
+	if err := m.updateSetting("base_url", "https://custom.example/"); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.RLock()
+	base := m.baseURL
+	m.mu.RUnlock()
+	if base != "https://custom.example" {
+		t.Errorf("base_url = %q", base)
+	}
+	if err := m.updateSetting("unknown", "x"); err == nil {
+		t.Fatal("expected error for unknown setting")
+	}
+}
+
+func TestGetMovieDetailsWithAppendVideosAndCredits(t *testing.T) {
+	_, m := newTestServer(t)
+	ctx := context.Background()
+	resp, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{
+		Id:               550,
+		AppendToResponse: []string{"videos", "credits"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Videos) != 1 || resp.Videos[0].Key != "SUXWAEX2jlg" {
+		t.Fatalf("videos: %+v", resp.Videos)
+	}
+	if len(resp.Credits) != 1 {
+		t.Fatalf("expected credits block, got %d", len(resp.Credits))
+	}
+	if len(resp.Credits[0].Cast) != 1 || resp.Credits[0].Cast[0].Name != "Brad Pitt" {
+		t.Fatalf("cast: %+v", resp.Credits[0].Cast)
+	}
+	if len(resp.Credits[0].Crew) != 1 || resp.Credits[0].Crew[0].Job != "Director" {
+		t.Fatalf("crew: %+v", resp.Credits[0].Crew)
+	}
+}
+
+func TestGetTVDetailsWithAppendVideos(t *testing.T) {
+	_, m := newTestServer(t)
+	resp, err := m.GetTVDetails(context.Background(), &metadatav1.GetTVDetailsRequest{
+		Id:               1396,
+		AppendToResponse: []string{"videos"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Videos) != 1 || resp.Videos[0].Site != "YouTube" {
+		t.Fatalf("videos: %+v", resp.Videos)
+	}
+}
+
+func TestSearchEmptyQueryInvalidArgument(t *testing.T) {
+	m := NewModule(Config{APIKey: "key", BaseURL: "http://localhost:1"})
+	_, err := m.Search(context.Background(), &metadatav1.SearchRequest{Query: "  "})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestGetMovieDetailsZeroIDInvalidArgument(t *testing.T) {
+	m := NewModule(Config{APIKey: "key"})
+	_, err := m.GetMovieDetails(context.Background(), &metadatav1.GetMovieDetailsRequest{Id: 0})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestTMDB401Unauthenticated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status_message": "Invalid API key"})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "bad"})
+	m.limiter.rate = 0
+	m.cache.max = 0
+	_, err := m.Search(context.Background(), &metadatav1.SearchRequest{Query: "test"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.Unauthenticated {
+		t.Fatalf("expected Unauthenticated, got %v", err)
+	}
+}
+
+func TestHealthInvalidAPIKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "bad"})
+	m.limiter.rate = 0
+	m.cache.max = 0
+	if err := m.Health(context.Background()); err == nil {
+		t.Fatal("expected health error for invalid key")
+	}
+}
+
+func TestSettingsChangeClearsCache(t *testing.T) {
+	fetchCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"page": 1, "total_results": 0, "total_pages": 0,
+			"results": []map[string]any{},
+		})
+	}))
+	defer srv.Close()
+
+	m := NewModule(Config{BaseURL: srv.URL, APIKey: "key1"})
+	ctx := context.Background()
+	req := &metadatav1.SearchRequest{Query: "cached", Type: metadatav1.MediaType_MEDIA_TYPE_MOVIE}
+	if _, err := m.Search(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.updateSetting("api_key", "key2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Search(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if fetchCount != 2 {
+		t.Errorf("expected cache clear after api_key change, fetchCount=%d", fetchCount)
+	}
+}
+
+func TestFixtureMovieVideosAndCredits(t *testing.T) {
+	m := NewModule(Config{Fixture: true})
+	ctx := context.Background()
+	resp, err := m.GetMovieDetails(ctx, &metadatav1.GetMovieDetailsRequest{
+		Id:               550,
+		AppendToResponse: []string{"videos", "credits"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Videos) != 1 || resp.Videos[0].Site != "YouTube" {
+		t.Fatalf("fixture videos: %+v", resp.Videos)
+	}
+	if len(resp.Credits) != 1 || len(resp.Credits[0].Cast) < 2 {
+		t.Fatalf("fixture credits: %+v", resp.Credits)
+	}
+}
+
+func TestFixtureTVSeasonsAndCollection(t *testing.T) {
+	m := NewModule(Config{Fixture: true})
+	ctx := context.Background()
+	for _, season := range []int32{0, 3, 4, 5} {
+		if _, err := m.GetSeasonDetails(ctx, &metadatav1.GetSeasonDetailsRequest{
+			Id: 1396, SeasonNumber: season,
+		}); err != nil {
+			t.Fatalf("season %d: %v", season, err)
+		}
+	}
+	col, err := m.GetCollection(ctx, &metadatav1.GetCollectionRequest{Id: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if col.Name != "Star Wars Collection" {
+		t.Errorf("collection name = %q", col.Name)
+	}
+}
+
+func TestMapCredits(t *testing.T) {
+	out := mapCredits(&creditsAppendRaw{
+		Cast: []castRaw{{ID: 1, Name: "Actor", Character: "Role", Order: 0}},
+		Crew: []crewRaw{{ID: 2, Name: "Director", Job: "Director", Department: "Directing"}},
+	})
+	if len(out) != 1 || len(out[0].Cast) != 1 || len(out[0].Crew) != 1 {
+		t.Fatalf("mapCredits: %+v", out)
+	}
+	if mapCredits(nil) != nil {
+		t.Error("expected nil for nil credits")
 	}
 }

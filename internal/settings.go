@@ -47,6 +47,7 @@ func (m *Module) updateSetting(key, value string) error {
 		m.mu.Lock()
 		m.apiKey = strings.TrimSpace(value)
 		m.mu.Unlock()
+		m.cache.clear()
 		return nil
 	case "base_url", "TMDB_BASE_URL":
 		value = strings.TrimRight(strings.TrimSpace(value), "/")
@@ -56,6 +57,7 @@ func (m *Module) updateSetting(key, value string) error {
 		m.mu.Lock()
 		m.baseURL = value
 		m.mu.Unlock()
+		m.cache.clear()
 		return nil
 	default:
 		return fmt.Errorf("unknown setting %q", key)
