@@ -18,10 +18,13 @@ TMDB (The Movie Database) metadata provider for movies and TV shows.
 
 ## Configuration
 
+Offline / laptop demo: set `TMDB_FIXTURE=1` or `TMDB_API_KEY=fixture` to serve the built-in Fight Club + Breaking Bad corpus without calling api.themoviedb.org. The MVP stack defaults to fixture mode when no real key is configured.
+
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `TMDB_API_KEY` | `""` | TMDB API key |
+| `TMDB_API_KEY` | `""` | TMDB API key (use `fixture` for offline mode) |
 | `MUXCORE_CFG_TMDB_API_KEY` | `""` | Alternative TMDB API key |
+| `TMDB_FIXTURE` | unset | Set `1` or `true` for offline fixture corpus (no network) |
 | `METADATA_GRPC_ADDR` | `:9411` | gRPC listen address |
 | `TMDB_BASE_URL` | `https://api.themoviedb.org` | TMDB API base URL |
 | `TMDB_CACHE_MAX` | `1024` | Max cached responses (`0` disables) |
