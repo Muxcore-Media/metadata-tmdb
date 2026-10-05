@@ -526,6 +526,7 @@ func TestHealthWithAPIKey(t *testing.T) {
 }
 
 func TestLifecycle(t *testing.T) {
+	t.Setenv("MUXCORE_DEV_TLS_SKIP", "true") // plaintext gRPC listener for this test (meshtls dev flag)
 	m := NewModule(Config{GRPCAddr: ":0"})
 	ctx := context.Background()
 	if err := m.Init(ctx); err != nil {

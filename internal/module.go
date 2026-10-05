@@ -22,6 +22,7 @@ import (
 	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 	"github.com/Muxcore-Media/core/pkg/contracts"
 	modulesdk "github.com/Muxcore-Media/core/sdk/go/module"
+	"github.com/Muxcore-Media/core/sdk/go/module/meshtls"
 	manifest "github.com/Muxcore-Media/metadata-tmdb"
 )
 
@@ -149,7 +150,11 @@ func (m *Module) Init(ctx context.Context) error {
 }
 
 func (m *Module) Start(ctx context.Context) error {
-	m.grpcSrv = grpc.NewServer()
+	srv, err := meshtls.NewServer()
+	if err != nil {
+		return fmt.Errorf("gRPC mesh TLS: %w", err)
+	}
+	m.grpcSrv = srv
 	metadatav1.RegisterMetadataServiceServer(m.grpcSrv, m)
 	m.registerSettingsMesh(m.grpcSrv)
 	go func() {
