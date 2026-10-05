@@ -1,7 +1,7 @@
 {
   "name": "Metadata TMDB",
   "description": "TMDB (The Movie Database) metadata provider for movies and TV shows",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "author": "MuxCore",
   "roles": [
     "metadata"
