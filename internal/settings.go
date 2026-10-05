@@ -54,6 +54,9 @@ func (m *Module) updateSetting(key, value string) error {
 		if value == "" {
 			value = "https://api.themoviedb.org"
 		}
+		if err := guardOutboundURL(value); err != nil {
+			return err
+		}
 		m.mu.Lock()
 		m.baseURL = value
 		m.mu.Unlock()

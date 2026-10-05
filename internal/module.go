@@ -106,9 +106,7 @@ func NewModule(cfg Config) *Module {
 		cache:    newHTTPCache(),
 		inflight: newInflightGroup(),
 		limiter:  newTokenBucket(),
-		client: &http.Client{
-			Timeout: cfg.Timeout,
-		},
+		client: newGuardedClient(cfg.Timeout),
 	}
 }
 
@@ -671,6 +669,9 @@ func (m *Module) tmdbFetch(ctx context.Context, endpoint string, params url.Valu
 	q := cloneValues(params)
 	q.Set("api_key", apiKey)
 	u := baseURL + endpoint + "?" + q.Encode()
+	if err := guardOutboundURL(u); err != nil {
+		return nil, err
+	}
 
 	var retryAfterSec int
 	for attempt := 0; ; attempt++ {

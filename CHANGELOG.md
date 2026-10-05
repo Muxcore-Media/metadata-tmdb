@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+- TMDB fetches go through netguard Integration (private LAN and loopback allowed for a household fixture; link-local, cloud metadata, and non-HTTP schemes refused). Settings reject a blocked base URL (NFR-SEC-009).
+
 ## [0.1.9] - 2026-10-05
 
 
