@@ -1,0 +1,18 @@
+{
+  "id": 1399,
+  "name": "Certification Fixture Series",
+  "original_name": "Certification Fixture Series",
+  "first_air_date": "2011-04-17",
+  "number_of_seasons": 8,
+  "status": "Ended",
+  "in_production": false,
+  "content_ratings": {
+    "results": [
+      {"descriptors": [], "iso_3166_1": "DE", "rating": "16"},
+      {"descriptors": [], "iso_3166_1": "GB", "rating": "15"},
+      {"descriptors": [], "iso_3166_1": "US", "rating": ""},
+      {"descriptors": [], "iso_3166_1": "US", "rating": "TV-MA"},
+      {"descriptors": [], "iso_3166_1": "FR", "rating": ""}
+    ]
+  }
+}
