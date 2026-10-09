@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.10] - 2026-10-09
 
 ### Added
 - `GetMovieDetails` / `GetTVDetails` return the raw TMDB certification for one configured country in `certification` + `certification_country` (contracts-metadata tags movie 28/29, TV 33/34), fetched with `append_to_response=release_dates` / `content_ratings` in the same request (ADR-0031 §2, roadmap T-M4-01 S4b). Deterministic movie release-type rule; empty when none, never an error; values trimmed, control characters removed, over 16 bytes dropped; no ladder mapping.
