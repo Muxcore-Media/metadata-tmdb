@@ -41,15 +41,18 @@ type tmdbConfig struct {
 type Module struct {
 	metadatav1.UnimplementedMetadataServiceServer
 
-	mu         sync.RWMutex
-	client     *http.Client
-	apiKey     string
-	baseURL    string
-	fixture    bool
-	lastConfig *tmdbConfig
-	cache      *httpCache
-	inflight   *inflightGroup
-	limiter    *tokenBucket
+	mu      sync.RWMutex
+	client  *http.Client
+	apiKey  string
+	baseURL string
+	fixture bool
+	// certCountry is the ISO 3166-1 alpha-2 country whose TMDB certification is
+	// returned on movie/TV details; "" disables certification lookup.
+	certCountry string
+	lastConfig  *tmdbConfig
+	cache       *httpCache
+	inflight    *inflightGroup
+	limiter     *tokenBucket
 
 	id       string
 	grpcAddr string
@@ -64,6 +67,9 @@ type Config struct {
 	Timeout  time.Duration
 	BaseURL  string
 	Fixture  bool
+	// CertificationCountry is the ISO 3166-1 alpha-2 country for TMDB
+	// certifications (default "US"; TMDB_CERTIFICATION_COUNTRY overrides).
+	CertificationCountry string
 }
 
 func NewModule(cfg Config) *Module {
@@ -97,15 +103,26 @@ func NewModule(cfg Config) *Module {
 	if strings.EqualFold(cfg.APIKey, "fixture") {
 		cfg.Fixture = true
 	}
+	if v := os.Getenv("TMDB_CERTIFICATION_COUNTRY"); v != "" {
+		cfg.CertificationCountry = v
+	}
+	certCountry, err := parseCertificationCountry(cfg.CertificationCountry)
+	if err != nil {
+		// Never guess another country: an invalid value disables certification,
+		// which media modules treat as "unavailable" (ADR-0031 §2.5).
+		slog.Warn("metadata-tmdb: certification lookup disabled", "error", err)
+		certCountry = ""
+	}
 	return &Module{
-		id:       cfg.ID,
-		grpcAddr: cfg.GRPCAddr,
-		apiKey:   cfg.APIKey,
-		baseURL:  cfg.BaseURL,
-		fixture:  cfg.Fixture,
-		cache:    newHTTPCache(),
-		inflight: newInflightGroup(),
-		limiter:  newTokenBucket(),
+		id:          cfg.ID,
+		grpcAddr:    cfg.GRPCAddr,
+		apiKey:      cfg.APIKey,
+		baseURL:     cfg.BaseURL,
+		fixture:     cfg.Fixture,
+		certCountry: certCountry,
+		cache:       newHTTPCache(),
+		inflight:    newInflightGroup(),
+		limiter:     newTokenBucket(),
 		client: &http.Client{
 			Timeout: cfg.Timeout,
 		},
@@ -262,12 +279,18 @@ func (m *Module) GetMovieDetails(ctx context.Context, req *metadatav1.GetMovieDe
 	}
 	endpoint := fmt.Sprintf("/3/movie/%d", id)
 
+	country := m.certificationCountry()
+	appends := req.GetAppendToResponse()
+	if country != "" {
+		appends = withAppend(appends, "release_dates")
+	}
+
 	params := url.Values{}
 	if req.GetLanguage() != "" {
 		params.Set("language", req.GetLanguage())
 	}
-	if len(req.GetAppendToResponse()) > 0 {
-		params.Set("append_to_response", strings.Join(req.GetAppendToResponse(), ","))
+	if len(appends) > 0 {
+		params.Set("append_to_response", strings.Join(appends, ","))
 	}
 
 	var raw movieDetailRaw
@@ -276,7 +299,9 @@ func (m *Module) GetMovieDetails(ctx context.Context, req *metadatav1.GetMovieDe
 	}
 
 	cfg, _ := m.getConfig(ctx)
-	return raw.toProto(cfg), nil
+	resp := raw.toProto(cfg)
+	resp.Certification, resp.CertificationCountry = selectMovieCertification(raw.ReleaseDates, country)
+	return resp, nil
 }
 
 func (m *Module) GetTVDetails(ctx context.Context, req *metadatav1.GetTVDetailsRequest) (*metadatav1.GetTVDetailsResponse, error) {
@@ -286,12 +311,18 @@ func (m *Module) GetTVDetails(ctx context.Context, req *metadatav1.GetTVDetailsR
 	}
 	endpoint := fmt.Sprintf("/3/tv/%d", id)
 
+	country := m.certificationCountry()
+	appends := req.GetAppendToResponse()
+	if country != "" {
+		appends = withAppend(appends, "content_ratings")
+	}
+
 	params := url.Values{}
 	if req.GetLanguage() != "" {
 		params.Set("language", req.GetLanguage())
 	}
-	if len(req.GetAppendToResponse()) > 0 {
-		params.Set("append_to_response", strings.Join(req.GetAppendToResponse(), ","))
+	if len(appends) > 0 {
+		params.Set("append_to_response", strings.Join(appends, ","))
 	}
 
 	var raw tvDetailRaw
@@ -300,7 +331,9 @@ func (m *Module) GetTVDetails(ctx context.Context, req *metadatav1.GetTVDetailsR
 	}
 
 	cfg, _ := m.getConfig(ctx)
-	return raw.toProto(cfg), nil
+	resp := raw.toProto(cfg)
+	resp.Certification, resp.CertificationCountry = selectTVCertification(raw.ContentRatings, country)
+	return resp, nil
 }
 
 func (m *Module) GetSeasonDetails(ctx context.Context, req *metadatav1.GetSeasonDetailsRequest) (*metadatav1.GetSeasonDetailsResponse, error) {
@@ -879,6 +912,8 @@ type movieDetailRaw struct {
 	BelongsTo        *collectionRaw    `json:"belongs_to_collection"`
 	Videos           *videosAppendRaw  `json:"videos"`
 	Credits          *creditsAppendRaw `json:"credits"`
+	// Decoded lazily so a malformed block never fails the whole details call.
+	ReleaseDates json.RawMessage `json:"release_dates"`
 }
 
 type genreRaw struct {
@@ -1014,6 +1049,8 @@ type tvDetailRaw struct {
 	OriginCountries  []string          `json:"origin_country"`
 	Videos           *videosAppendRaw  `json:"videos"`
 	Credits          *creditsAppendRaw `json:"credits"`
+	// Decoded lazily so a malformed block never fails the whole details call.
+	ContentRatings json.RawMessage `json:"content_ratings"`
 }
 
 type seasonRaw struct {

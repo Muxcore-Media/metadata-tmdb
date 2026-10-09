@@ -88,6 +88,11 @@ message GetMovieDetailsResponse {
   repeated Video videos = 25;
   repeated Credits credits = 26;
   Collection belongs_to_collection = 27;
+  // Must match contracts-metadata GetMovieDetailsResponse tags 28/29 exactly.
+  // Raw TMDB release_dates certification for certification_country (e.g. "PG-13");
+  // empty when none. Media modules map it (ADR-0031 §2); unknown/empty = unavailable.
+  string certification = 28;
+  string certification_country = 29;
 }
 
 message Collection {
@@ -205,6 +210,13 @@ message GetTVDetailsResponse {
   repeated CreatedBy created_by = 27;
   repeated Network networks = 28;
   repeated string origin_country = 29;
+  // Tags 30-32 are used by contracts-metadata (in_production bool, imdb_id, tvdb_id);
+  // do not reuse them here with another type.
+  // Must match contracts-metadata GetTVDetailsResponse tags 33/34 exactly.
+  // Raw TMDB content_ratings rating for certification_country (e.g. "TV-MA");
+  // empty when none. Media modules map it (ADR-0031 §2); unknown/empty = unavailable.
+  string certification = 33;
+  string certification_country = 34;
 }
 
 message CreatedBy {
