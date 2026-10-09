@@ -3,7 +3,7 @@ module github.com/Muxcore-Media/metadata-tmdb
 go 1.26.6
 
 require (
-	github.com/Muxcore-Media/contracts-metadata v0.2.0
+	github.com/Muxcore-Media/contracts-metadata v0.2.1-0.20261009190730-b323d21981a0
 	github.com/Muxcore-Media/core/pkg/contracts v0.6.0
 	github.com/Muxcore-Media/core/sdk/go/module v0.6.5
 	google.golang.org/grpc v1.83.2
