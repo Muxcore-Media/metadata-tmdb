@@ -13,6 +13,7 @@ func (m *Module) settingsDefs() []contracts.SettingDef {
 	m.mu.RLock()
 	key := m.apiKey
 	base := m.baseURL
+	country := m.certCountry
 	m.mu.RUnlock()
 	return []contracts.SettingDef{
 		{
@@ -34,6 +35,16 @@ func (m *Module) settingsDefs() []contracts.SettingDef {
 			Description: "TMDB API base URL",
 			Required:    false,
 			Group:       "Connection",
+		},
+		{
+			Key:         "certification_country",
+			Label:       "Certification country",
+			Type:        contracts.SettingTypeString,
+			Default:     defaultCertificationCountry,
+			Value:       country,
+			Description: "ISO 3166-1 alpha-2 country whose raw TMDB certification is returned on movie/TV details (e.g. US, GB, DE). Invalid values are rejected; an invalid TMDB_CERTIFICATION_COUNTRY at startup disables certification (shown empty).",
+			Required:    false,
+			Group:       "Content ratings",
 		},
 	}
 }
@@ -58,6 +69,19 @@ func (m *Module) updateSetting(key, value string) error {
 		m.baseURL = value
 		m.mu.Unlock()
 		m.cache.clear()
+		return nil
+	case "certification_country", "TMDB_CERTIFICATION_COUNTRY":
+		// Invalid values are rejected and the current country is kept. Empty
+		// resets to the default. No cache clear: the cache holds raw TMDB bodies
+		// with every country's certifications, and the country is applied per
+		// request after the cache, so entries can never mix countries.
+		country, err := parseCertificationCountry(value)
+		if err != nil {
+			return err
+		}
+		m.mu.Lock()
+		m.certCountry = country
+		m.mu.Unlock()
 		return nil
 	default:
 		return fmt.Errorf("unknown setting %q", key)
